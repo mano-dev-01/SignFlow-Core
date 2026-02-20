@@ -35,8 +35,3 @@ Start the app:
 python app/main.py
 
 ---
-
-## Note
-
-This is a proof-of-concept assistive system.  
-It does not cover full sign language and does not replace human interpreters.
