@@ -35,6 +35,6 @@ python -m pip install --upgrade pip setuptools wheel
 
 Start the app:
 
-python app/main.py
+run_signflow.bat
 
 ---

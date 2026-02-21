@@ -192,9 +192,9 @@ while True:
         if no_hand_frames >= NO_HAND_FRAMES_TO_RESET_REPEAT_LOCK:
             last_appended_label = None
 
-    cv2.putText(frame, current_char, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-    cv2.putText(frame, f"Sentence: {current_sentence}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 220, 255), 2)
-    cv2.imshow("ASL Prediction", frame)
+    # cv2.putText(frame, current_char, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    # cv2.putText(frame, f"Sentence: {current_sentence}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 220, 255), 2)
+    # cv2.imshow("ASL Prediction", frame)
 
     if cv2.waitKey(1) & 0xFF == 27:
         break
