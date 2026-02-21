@@ -7,7 +7,7 @@ CONNECT_TIMEOUT_MS = 500
 WRITE_TIMEOUT_MS = 500
 DISCONNECT_TIMEOUT_MS = 200
 MESSAGE_DELIMITER = "\n"
-EXIT_COMMANDS = {"/exit", "/quit"}
+EXIT_COMMANDS = {"/exit", "/q"}
 
 
 def send_caption(caption_text):
@@ -34,7 +34,7 @@ def send_caption(caption_text):
 
 def main():
     print("Caption sender started. Type text and press Enter to update overlay.")
-    print("Type /exit or /quit to stop.")
+    print("Type /exit or /q to stop.")
     print(f"Using IPC socket: {IPC_SERVER_NAME}")
 
     while True:

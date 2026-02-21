@@ -1,26 +1,58 @@
-import os
+﻿import os
+
 import cv2
-import mediapipe as mp
 import joblib
+import mediapipe as mp
 import numpy as np
+from PyQt5.QtNetwork import QLocalSocket
 
 BASE_DIR = os.path.dirname(__file__)
 MODEL_NAME = "model.pkl"
 MODEL_PATH = os.path.join(BASE_DIR, "models", MODEL_NAME)
 
+IPC_SERVER_NAME = "signflow_overlay_ipc_v2"
+CONNECT_TIMEOUT_MS = 500
+WRITE_TIMEOUT_MS = 500
+DISCONNECT_TIMEOUT_MS = 200
+MESSAGE_DELIMITER = "\n"
+PREDICTION_THRESHOLD = 0.7
+MIN_STABLE_FRAMES_FOR_APPEND = 4
+NO_HAND_FRAMES_TO_RESET_REPEAT_LOCK = 6
+
 model = joblib.load(MODEL_PATH)
 
 mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
-
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,
     min_detection_confidence=0.7,
-    min_tracking_confidence=0.7
+    min_tracking_confidence=0.7,
 )
 
 cap = cv2.VideoCapture(0)
+
+
+def send_caption(caption_text):
+    socket = QLocalSocket()
+    socket.connectToServer(IPC_SERVER_NAME)
+
+    if not socket.waitForConnected(CONNECT_TIMEOUT_MS):
+        return False
+
+    payload = (caption_text + MESSAGE_DELIMITER).encode("utf-8")
+    if socket.write(payload) < 0:
+        return False
+
+    if not socket.waitForBytesWritten(WRITE_TIMEOUT_MS):
+        return False
+
+    socket.disconnectFromServer()
+    if socket.state() != QLocalSocket.UnconnectedState:
+        socket.waitForDisconnected(DISCONNECT_TIMEOUT_MS)
+
+    return True
+
 
 def normalize_landmarks(landmarks):
     lm = np.array([[lm.x, lm.y, lm.z] for lm in landmarks], dtype=np.float32)
@@ -69,6 +101,15 @@ def build_hand_features(landmarks):
 def zero_hand_features():
     return [0.0] * 73
 
+
+current_char = "INITIALIZED / WAITING..."
+current_sentence = ""
+last_sent_sentence = None
+candidate_label = None
+candidate_stable_frames = 0
+last_appended_label = None
+no_hand_frames = 0
+
 while True:
     ret, frame = cap.read()
     if not ret:
@@ -79,6 +120,7 @@ while True:
     results = hands.process(rgb)
 
     prediction_text = "No Hand"
+    detected_label = None
 
     if results.multi_hand_landmarks:
         right_features = None
@@ -116,18 +158,47 @@ while True:
         probs = model.predict_proba(features)[0]
         max_prob = np.max(probs)
 
-        if max_prob > 0.8:
-            prediction_text = model.predict(features)[0]
+        if max_prob > PREDICTION_THRESHOLD:
+            detected_label = str(model.predict(features)[0]).strip()
+            prediction_text = detected_label
         else:
             prediction_text = "Uncertain"
 
-    cv2.putText(frame, prediction_text, (10, 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    current_char = str(prediction_text)
 
+    if detected_label:
+        no_hand_frames = 0
+        if detected_label == candidate_label:
+            candidate_stable_frames += 1
+        else:
+            candidate_label = detected_label
+            candidate_stable_frames = 1
+
+        if (
+            candidate_stable_frames >= MIN_STABLE_FRAMES_FOR_APPEND
+            and detected_label != last_appended_label
+        ):
+            current_sentence += detected_label
+            last_appended_label = detected_label
+            candidate_label = None
+            candidate_stable_frames = 0
+
+            if current_sentence != last_sent_sentence and send_caption(current_sentence):
+                last_sent_sentence = current_sentence
+    else:
+        candidate_label = None
+        candidate_stable_frames = 0
+        no_hand_frames += 1
+        if no_hand_frames >= NO_HAND_FRAMES_TO_RESET_REPEAT_LOCK:
+            last_appended_label = None
+
+    cv2.putText(frame, current_char, (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+    cv2.putText(frame, f"Sentence: {current_sentence}", (10, 90), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 220, 255), 2)
     cv2.imshow("ASL Prediction", frame)
 
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
 cap.release()
+hands.close()
 cv2.destroyAllWindows()

@@ -30,6 +30,9 @@ Install dependencies:
 
 pip install -r requirements.txt
 
+Upgrade to latest pip:
+python -m pip install --upgrade pip setuptools wheel
+
 Start the app:
 
 python app/main.py
