@@ -1,40 +1,40 @@
-# SignFlow
+﻿# SignFlow
 
-SignFlow is a real-time sign language to English captioning system.
+SignFlow is a real-time sign language to English captioning system with a floating caption overlay.
 
-It captures a selected region of the screen (for example, a signing video), detects hand landmarks using MediaPipe, predicts signs using a machine learning model, and displays live captions as a floating translucent overlay.
+Python version: 3.10
 
-This project is built for reliability, low latency, and demo stability.
+## Windows
 
----
+1. Create virtual environment:
+`py -3.10 -m venv venv`
 
-## Features
+2. Activate virtual environment:
+`venv\Scripts\activate`
 
-- Screen region capture
-- Two-hand landmark detection
-- Temporal sign buffering
-- ML-based sign classification
-- Token → English smoothing
-- Always-on-top caption overlay
+3. Install dependencies:
+`python -m pip install --upgrade pip setuptools wheel`
+`pip install -r requirements.txt`
 
----
+4. Run:
+`run_signflow.bat`
 
-## Run
+Manual run (two terminals):
+Terminal 1: `python overlay.py`
+Terminal 2: `python realtime_sender.py`
 
-Create a virtual environment:
+## Linux
 
-python -m venv venv  
-venv\Scripts\activate  (Windows)
+1. Create virtual environment:
+`python3.10 -m venv venv`
 
-Install dependencies:
+2. Activate virtual environment:
+`source venv/bin/activate`
 
-pip install -r requirements.txt
+3. Install dependencies:
+`python -m pip install --upgrade pip setuptools wheel`
+`pip install -r requirements.txt`
 
-Upgrade to latest pip:
-python -m pip install --upgrade pip setuptools wheel
-
-Start the app:
-
-run_signflow.bat
-
----
+4. Run (two terminals):
+Terminal 1: `python overlay.py`
+Terminal 2: `python realtime_sender.py`
