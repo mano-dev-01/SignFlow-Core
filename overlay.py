@@ -1,7 +1,7 @@
 ﻿import sys
 
-from PyQt5.QtCore import QAbstractAnimation, QEasingCurve, QPropertyAnimation, Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QFontMetrics, QGuiApplication
+from PyQt5.QtCore import QAbstractAnimation, QEasingCurve, Qt, QVariantAnimation, pyqtSignal
+from PyQt5.QtGui import QFont, QFontMetrics, QGuiApplication, QRegion
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -32,8 +32,6 @@ CAPTION_MIN_FONT_SIZE = 16
 CAPTION_MAX_FONT_SIZE = 48
 DEFAULT_FONT_SIZE = 18
 DEFAULT_OPACITY = 0.85
-MIN_OPACITY = 0.5
-MAX_OPACITY = 1.0
 MIN_OPACITY_PERCENT = 50
 MAX_OPACITY_PERCENT = 100
 SECONDARY_EXPANDED_HEIGHT = 360
@@ -70,11 +68,8 @@ class PrimaryPanel(QFrame):
 
     def __init__(self):
         super().__init__()
-        self._font_size = DEFAULT_FONT_SIZE
-
         self.setObjectName("primaryPanel")
         self.setFixedWidth(OVERLAY_WIDTH)
-        self.setSizePolicy(self.sizePolicy().Expanding, self.sizePolicy().Minimum)
 
         root = QHBoxLayout(self)
         root.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
@@ -116,7 +111,6 @@ class PrimaryPanel(QFrame):
                 border: 1px solid {BORDER_COLOR};
                 border-radius: 8px;
                 color: {TEXT_COLOR};
-                min-height: 28px;
                 font: 600 13px '{FONT_FAMILY}';
             }}
             QPushButton:hover {{
@@ -129,40 +123,38 @@ class PrimaryPanel(QFrame):
 
     def set_caption_text(self, text: str):
         self.caption_label.setText(text or LABEL_DEFAULT_TEXT)
-        self.update_caption_height()
+        self._recompute_height()
 
     def set_caption_font_size(self, size: int):
         clamped = max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, size))
-        self._font_size = clamped
-        self.caption_label.setFont(QFont(FONT_FAMILY, self._font_size))
-        self.update_caption_height()
+        self.caption_label.setFont(QFont(FONT_FAMILY, clamped))
+        self._recompute_height()
 
     def set_expanded_icon(self, expanded: bool):
         self.toggle_button.setText("▼" if expanded else "▲")
 
-    def update_caption_height(self):
+    def _recompute_height(self):
         width = self.caption_label.width()
         if width < 120:
             fallback = OVERLAY_WIDTH - (OUTER_PADDING * 2) - BUTTON_WIDTH - PRIMARY_INNER_SPACING - (CAPTION_HORIZONTAL_PADDING * 2)
             width = max(120, fallback)
+
         metrics = QFontMetrics(self.caption_label.font())
         text_rect = metrics.boundingRect(0, 0, width, 10000, Qt.TextWordWrap, self.caption_label.text())
-        target = max(text_rect.height() + CAPTION_VERTICAL_PADDING, metrics.height() + CAPTION_VERTICAL_PADDING)
-        self.caption_label.setMinimumHeight(target)
-        self.caption_label.setMaximumHeight(target)
+        caption_height = max(text_rect.height() + CAPTION_VERTICAL_PADDING, metrics.height() + CAPTION_VERTICAL_PADDING)
+
+        self.caption_label.setMinimumHeight(caption_height)
+        self.caption_label.setMaximumHeight(caption_height)
         self.caption_label.setContentsMargins(
             CAPTION_HORIZONTAL_PADDING,
             CAPTION_VERTICAL_PADDING // 2,
             CAPTION_HORIZONTAL_PADDING,
             CAPTION_VERTICAL_PADDING // 2,
         )
-        buttons_height = (BUTTON_HEIGHT * 2) + BUTTON_COLUMN_SPACING
-        content_height = max(target, buttons_height)
-        panel_height = (OUTER_PADDING * 2) + content_height
-        self.setFixedHeight(panel_height)
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
+        controls_height = (BUTTON_HEIGHT * 2) + BUTTON_COLUMN_SPACING
+        content_height = max(caption_height, controls_height)
+        self.setFixedHeight((OUTER_PADDING * 2) + content_height)
 
 
 class SecondaryPanel(QFrame):
@@ -170,8 +162,7 @@ class SecondaryPanel(QFrame):
         super().__init__()
         self.setObjectName("secondaryPanel")
         self.setFixedWidth(OVERLAY_WIDTH)
-        self.setMinimumHeight(0)
-        self.setMaximumHeight(0)
+        self.setFixedHeight(0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         root = QHBoxLayout(self)
@@ -321,41 +312,42 @@ class OverlayWindow(QWidget):
         self.show_latency = False
         self.corner = DEFAULT_CORNER
         self.secondary_expanded = False
-        self._primary_base_height = 0
+        self.secondary_current_height = 0
 
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setFixedWidth(OVERLAY_WIDTH + OUTER_PADDING * 2)
 
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
-        self.root_layout.setSpacing(PANEL_SPACING)
+        self.root_layout.setSpacing(0)
 
         self.primary_panel = PrimaryPanel()
         self.secondary_panel = SecondaryPanel()
 
-        self.root_layout.addWidget(self.secondary_panel)
-        self.root_layout.addWidget(self.primary_panel)
+        self.inter_panel_spacer = QWidget()
+        self.inter_panel_spacer.setFixedHeight(0)
+        self.inter_panel_spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
-        self.secondary_animation = QPropertyAnimation(self.secondary_panel, b"maximumHeight", self)
+        self.secondary_animation = QVariantAnimation(self)
         self.secondary_animation.setDuration(ANIMATION_DURATION_MS)
         self.secondary_animation.setEasingCurve(QEasingCurve.InOutCubic)
-        self.secondary_animation.valueChanged.connect(self.on_secondary_height_changed)
+        self.secondary_animation.valueChanged.connect(self.on_secondary_animation_value)
         self.secondary_animation.finished.connect(self.on_secondary_animation_finished)
 
+        self._rebuild_stack()
         self._connect_signals()
         self.primary_panel.set_expanded_icon(self.secondary_expanded)
-        self.apply_corner_layout()
+
         self.apply_state_to_ui()
 
         app = QApplication.instance()
         if app is not None:
-            app.screenAdded.connect(lambda _screen: self.reposition_to_corner())
-            app.screenRemoved.connect(lambda _screen: self.reposition_to_corner())
+            app.screenAdded.connect(lambda _screen: self._position_window())
+            app.screenRemoved.connect(lambda _screen: self._position_window())
 
         primary_screen = QGuiApplication.primaryScreen()
         if primary_screen is not None:
-            primary_screen.geometryChanged.connect(lambda _rect: self.reposition_to_corner())
+            primary_screen.geometryChanged.connect(lambda _rect: self._position_window())
 
     def _connect_signals(self):
         self.primary_panel.toggle_requested.connect(self.toggle_secondary_panel)
@@ -370,10 +362,87 @@ class OverlayWindow(QWidget):
         self.secondary_panel.show_latency_checkbox.toggled.connect(self.on_show_latency_toggled)
         self.secondary_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
 
+    def _rebuild_stack(self):
+        while self.root_layout.count():
+            item = self.root_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+
+        if self.corner in (CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT):
+            self.root_layout.addStretch(1)
+            self.root_layout.addWidget(self.secondary_panel)
+            self.root_layout.addWidget(self.inter_panel_spacer)
+            self.root_layout.addWidget(self.primary_panel)
+        else:
+            self.root_layout.addWidget(self.primary_panel)
+            self.root_layout.addWidget(self.inter_panel_spacer)
+            self.root_layout.addWidget(self.secondary_panel)
+            self.root_layout.addStretch(1)
+
+    def _screen_geometry(self):
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return None
+        return screen.availableGeometry()
+
+    def _primary_height(self):
+        h = self.primary_panel.height()
+        if h > 0:
+            return h
+        return self.primary_panel.sizeHint().height()
+
+    def _full_window_height(self):
+        return (OUTER_PADDING * 2) + self._primary_height() + PANEL_SPACING + SECONDARY_EXPANDED_HEIGHT
+
+    def _visible_stack_height(self):
+        extra = PANEL_SPACING + self.secondary_current_height if self.secondary_current_height > 0 else 0
+        return (OUTER_PADDING * 2) + self._primary_height() + extra
+
+    def _set_secondary_height(self, height: int, force_hide: bool = False):
+        clamped = max(0, min(SECONDARY_EXPANDED_HEIGHT, int(height)))
+        self.secondary_current_height = clamped
+        self.inter_panel_spacer.setFixedHeight(PANEL_SPACING if clamped > 0 else 0)
+        self.secondary_panel.setFixedHeight(clamped)
+
+        if force_hide or clamped == 0:
+            self.secondary_panel.hide()
+        else:
+            self.secondary_panel.show()
+
+    def _update_mask(self):
+        visible_height = max(1, min(self._visible_stack_height(), self.height()))
+        y_offset = 0
+        if self.corner in (CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT):
+            y_offset = self.height() - visible_height
+        self.setMask(QRegion(0, y_offset, self.width(), visible_height))
+
+    def _position_window(self):
+        geo = self._screen_geometry()
+        if geo is None:
+            return
+
+        if self.corner in (CORNER_TOP_LEFT, CORNER_BOTTOM_LEFT):
+            x = geo.x() + OVERLAY_MARGIN
+        else:
+            x = geo.x() + geo.width() - self.width() - OVERLAY_MARGIN
+
+        if self.corner in (CORNER_TOP_LEFT, CORNER_TOP_RIGHT):
+            y = geo.y() + OVERLAY_MARGIN
+        else:
+            y = geo.y() + geo.height() - self.height() - OVERLAY_MARGIN
+
+        self.move(x, y)
+
+    def _refresh_window_geometry(self, reposition: bool):
+        self.setFixedSize(OVERLAY_WIDTH + (OUTER_PADDING * 2), self._full_window_height())
+        self._update_mask()
+        if reposition:
+            self._position_window()
+
     def apply_state_to_ui(self):
         self.primary_panel.set_caption_text(self.caption_text)
         self.primary_panel.set_caption_font_size(self.caption_font_size)
-        self._primary_base_height = self.primary_panel.height()
         self.setWindowOpacity(self.overlay_opacity)
 
         self.secondary_panel.font_size_slider.setValue(self.caption_font_size)
@@ -385,84 +454,22 @@ class OverlayWindow(QWidget):
         self.secondary_panel.show_latency_checkbox.setChecked(self.show_latency)
         self.secondary_panel.corner_combo.setCurrentText(self.corner)
 
-        self.secondary_panel.setMinimumHeight(0)
-        self.secondary_panel.setMaximumHeight(0)
-        self.secondary_panel.hide()
-        self.sync_window_height()
-        self.reposition_to_corner()
+        self._set_secondary_height(0, force_hide=True)
+        self._refresh_window_geometry(reposition=True)
 
-    def sync_window_height(self):
-        primary_height = self.primary_panel.height()
-        if primary_height > 0:
-            self._primary_base_height = primary_height
-        elif self._primary_base_height > 0:
-            primary_height = self._primary_base_height
-        else:
-            primary_height = self.primary_panel.sizeHint().height()
-        secondary_height = self.secondary_panel.maximumHeight() if self.secondary_panel.isVisible() else 0
-        spacing = PANEL_SPACING if self.secondary_panel.isVisible() else 0
-        total_height = OUTER_PADDING * 2 + primary_height + secondary_height + spacing
-        self.setFixedHeight(total_height)
-
-    def _screen_geometry(self):
-        screen = QGuiApplication.primaryScreen()
-        if screen is None:
-            return None
-        return screen.availableGeometry()
-
-    def _frame_extra_height(self):
-        frame_h = self.frameGeometry().height()
-        client_h = self.geometry().height()
-        if frame_h > 0 and client_h > 0 and frame_h >= client_h:
-            return frame_h - client_h
-        return 0
-
-    def _target_position(self, total_height: int):
-        geo = self._screen_geometry()
-        if geo is None:
-            return None
-
-        outer_height = total_height + self._frame_extra_height()
-
-        if self.corner in (CORNER_TOP_LEFT, CORNER_BOTTOM_LEFT):
-            x = geo.x() + OVERLAY_MARGIN
-        else:
-            x = geo.x() + geo.width() - self.width() - OVERLAY_MARGIN
-
-        if self.corner in (CORNER_TOP_LEFT, CORNER_TOP_RIGHT):
-            y = geo.y() + OVERLAY_MARGIN
-        else:
-            bottom_anchor = geo.y() + geo.height() - OVERLAY_MARGIN
-            y = bottom_anchor - outer_height
-        return x, y
-
-    def _apply_geometry(self):
-        position = self._target_position(self.height())
-        if position is None:
-            return
-        x, y = position
-        self.move(x, y)
-
-    def on_secondary_height_changed(self, value):
-        height = int(value)
-        if not self.secondary_panel.isVisible():
-            self.secondary_panel.show()
-        self.secondary_panel.setMaximumHeight(height)
-        self.sync_window_height()
-        self._apply_geometry()
+    def on_secondary_animation_value(self, value):
+        self._set_secondary_height(int(value), force_hide=False)
+        self._update_mask()
 
     def on_secondary_animation_finished(self):
         if not self.secondary_expanded:
-            self.secondary_panel.setMaximumHeight(0)
-            self.secondary_panel.hide()
-            self.sync_window_height()
-        self.reposition_to_corner()
+            self._set_secondary_height(0, force_hide=True)
+            self._update_mask()
 
     def on_font_size_changed(self, value: int):
         self.caption_font_size = value
         self.primary_panel.set_caption_font_size(value)
-        self.sync_window_height()
-        self._apply_geometry()
+        self._refresh_window_geometry(reposition=True)
 
     def on_opacity_changed(self, value: int):
         clamped = max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, value))
@@ -486,14 +493,13 @@ class OverlayWindow(QWidget):
 
     def on_corner_changed(self, text: str):
         self.corner = text
-        self.apply_corner_layout()
-        self.reposition_to_corner()
+        self._rebuild_stack()
+        self._refresh_window_geometry(reposition=True)
 
     def set_caption_text(self, text: str):
         self.caption_text = text or LABEL_DEFAULT_TEXT
         self.primary_panel.set_caption_text(self.caption_text)
-        self.sync_window_height()
-        self._apply_geometry()
+        self._refresh_window_geometry(reposition=True)
 
     def toggle_secondary_panel(self):
         if ENABLE_COLLAPSE_ANIMATION and self.secondary_animation.state() == QAbstractAnimation.Running:
@@ -502,62 +508,19 @@ class OverlayWindow(QWidget):
         self.secondary_expanded = not self.secondary_expanded
         self.primary_panel.set_expanded_icon(self.secondary_expanded)
 
-        start_height = self.secondary_panel.maximumHeight()
-        end_height = SECONDARY_EXPANDED_HEIGHT if self.secondary_expanded else 0
+        target = SECONDARY_EXPANDED_HEIGHT if self.secondary_expanded else 0
 
         if not ENABLE_COLLAPSE_ANIMATION:
             self.secondary_animation.stop()
-            if self.secondary_expanded:
-                self.secondary_panel.show()
-                self.secondary_panel.setMaximumHeight(end_height)
-            else:
-                self.secondary_panel.setMaximumHeight(0)
-                self.secondary_panel.hide()
-            self.sync_window_height()
-            self.reposition_to_corner()
+            self._set_secondary_height(target, force_hide=not self.secondary_expanded)
+            self._update_mask()
             return
-
-        if self.secondary_expanded:
-            self.secondary_panel.show()
-            start_height = max(0, start_height)
 
         self.secondary_animation.stop()
-        self.secondary_animation.setStartValue(start_height)
-        self.secondary_animation.setEndValue(end_height)
+        self.secondary_animation.setStartValue(self.secondary_current_height)
+        self.secondary_animation.setEndValue(target)
         self.secondary_animation.start()
 
-    def apply_corner_layout(self):
-        self.root_layout.removeWidget(self.primary_panel)
-        self.root_layout.removeWidget(self.secondary_panel)
-
-        if self.corner in (CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT):
-            self.root_layout.addWidget(self.secondary_panel)
-            self.root_layout.addWidget(self.primary_panel)
-        else:
-            self.root_layout.addWidget(self.primary_panel)
-            self.root_layout.addWidget(self.secondary_panel)
-
-        self.sync_window_height()
-        self._apply_geometry()
-
-    def reposition_to_corner(self):
-        geo = self._screen_geometry()
-        if geo is None:
-            return
-
-        outer_height = self.height() + self._frame_extra_height()
-
-        if self.corner in (CORNER_TOP_LEFT, CORNER_BOTTOM_LEFT):
-            x = geo.x() + OVERLAY_MARGIN
-        else:
-            x = geo.x() + geo.width() - self.width() - OVERLAY_MARGIN
-
-        if self.corner in (CORNER_TOP_LEFT, CORNER_TOP_RIGHT):
-            y = geo.y() + OVERLAY_MARGIN
-        else:
-            y = geo.y() + geo.height() - outer_height - OVERLAY_MARGIN
-
-        self.move(x, y)
 
 
 def main():
