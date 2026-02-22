@@ -1,5 +1,7 @@
-﻿import os
+﻿import json
+import os
 import sys
+from pathlib import Path
 
 from PyQt5.QtCore import QAbstractAnimation, QEasingCurve, Qt, QVariantAnimation, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QGuiApplication, QRegion
@@ -52,8 +54,8 @@ CORNER_BOTTOM_RIGHT = "Bottom Right"
 DEFAULT_CORNER = CORNER_BOTTOM_RIGHT
 FONT_FAMILY = "Segoe UI"
 TEXT_COLOR = "rgba(255, 255, 255, 235)"
-PRIMARY_BG = "rgba(28, 28, 30, 205)"
-SECONDARY_BG = "rgba(40, 40, 43, 205)"
+PRIMARY_BG = "rgba(28, 28, 30, 255)"
+SECONDARY_BG = "rgba(40, 40, 43, 255)"
 BORDER_COLOR = "rgba(255, 255, 255, 28)"
 BUTTON_BG = "rgba(255, 255, 255, 24)"
 BUTTON_HOVER_BG = "rgba(255, 255, 255, 52)"
@@ -61,7 +63,86 @@ RADIUS = 14
 LABEL_DEFAULT_TEXT = "Captions Placeholder"
 MODEL_OPTIONS = ["Local Small", "Local Medium"]
 CORNER_OPTIONS = [CORNER_TOP_LEFT, CORNER_TOP_RIGHT, CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT]
-FONT_SIZE_ARG = "--font-size"
+
+PROJECT_DIR = Path(__file__).resolve().parent
+DEFAULT_SETTINGS_PATH = PROJECT_DIR / "default_settings.json"
+USER_PREFERENCES_PATH = PROJECT_DIR / "user_preferences.json"
+
+DEFAULT_SETTINGS = {
+    "font_size": DEFAULT_FONT_SIZE,
+    "opacity_percent": int(DEFAULT_OPACITY * 100),
+    "show_raw_tokens": False,
+    "freeze_on_detection_loss": False,
+    "enable_llm_smoothing": False,
+    "model_selection": MODEL_OPTIONS[0],
+    "show_latency": False,
+    "corner": DEFAULT_CORNER,
+}
+
+
+def _clamp_int(value, low, high, fallback):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(low, min(high, parsed))
+
+
+def _as_bool(value, fallback):
+    if isinstance(value, bool):
+        return value
+    return fallback
+
+
+def _sanitize_settings(raw):
+    source = raw if isinstance(raw, dict) else {}
+    return {
+        "font_size": _clamp_int(source.get("font_size"), CAPTION_MIN_FONT_SIZE, CAPTION_MAX_FONT_SIZE, DEFAULT_SETTINGS["font_size"]),
+        "opacity_percent": _clamp_int(source.get("opacity_percent"), MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT, DEFAULT_SETTINGS["opacity_percent"]),
+        "show_raw_tokens": _as_bool(source.get("show_raw_tokens"), DEFAULT_SETTINGS["show_raw_tokens"]),
+        "freeze_on_detection_loss": _as_bool(source.get("freeze_on_detection_loss"), DEFAULT_SETTINGS["freeze_on_detection_loss"]),
+        "enable_llm_smoothing": _as_bool(source.get("enable_llm_smoothing"), DEFAULT_SETTINGS["enable_llm_smoothing"]),
+        "model_selection": source.get("model_selection") if source.get("model_selection") in MODEL_OPTIONS else DEFAULT_SETTINGS["model_selection"],
+        "show_latency": _as_bool(source.get("show_latency"), DEFAULT_SETTINGS["show_latency"]),
+        "corner": source.get("corner") if source.get("corner") in CORNER_OPTIONS else DEFAULT_SETTINGS["corner"],
+    }
+
+
+def _read_json(path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _write_json(path, payload):
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def ensure_preferences_files():
+    default_raw = _read_json(DEFAULT_SETTINGS_PATH)
+    defaults = _sanitize_settings(default_raw if default_raw is not None else DEFAULT_SETTINGS)
+    _write_json(DEFAULT_SETTINGS_PATH, defaults)
+
+    user_raw = _read_json(USER_PREFERENCES_PATH)
+    user = _sanitize_settings(user_raw if user_raw is not None else defaults)
+    _write_json(USER_PREFERENCES_PATH, user)
+
+    return defaults, user
+
+
+def save_user_preferences(preferences):
+    _write_json(USER_PREFERENCES_PATH, _sanitize_settings(preferences))
+
+
+def restart_current_process():
+    if getattr(sys, "frozen", False):
+        os.execv(sys.executable, [sys.executable] + sys.argv[1:])
+    else:
+        script_path = os.path.abspath(sys.argv[0])
+        os.execv(sys.executable, [sys.executable, script_path] + sys.argv[1:])
 
 
 class PrimaryPanel(QFrame):
@@ -165,9 +246,12 @@ class SecondaryPanel(QFrame):
         self.setFixedHeight(0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        root = QHBoxLayout(self)
+        root = QVBoxLayout(self)
         root.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
-        root.setSpacing(SECONDARY_INNER_SPACING)
+        root.setSpacing(SECONDARY_COLUMN_SPACING)
+
+        columns_row = QHBoxLayout()
+        columns_row.setSpacing(SECONDARY_INNER_SPACING)
 
         left_col = QVBoxLayout()
         left_col.setSpacing(SECONDARY_COLUMN_SPACING)
@@ -177,14 +261,13 @@ class SecondaryPanel(QFrame):
 
         self.font_size_slider = QSlider(Qt.Horizontal)
         self.font_size_slider.setRange(CAPTION_MIN_FONT_SIZE, CAPTION_MAX_FONT_SIZE)
-        self.font_size_slider.setValue(DEFAULT_FONT_SIZE)
 
         self.opacity_slider = QSlider(Qt.Horizontal)
         self.opacity_slider.setRange(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT)
-        self.opacity_slider.setValue(int(DEFAULT_OPACITY * 100))
 
         self.show_raw_tokens_checkbox = QCheckBox("Show raw tokens")
         self.freeze_on_loss_checkbox = QCheckBox("Freeze captions on detection loss")
+
         self.restart_button = QPushButton("Restart")
         self.restart_button.setObjectName("restartButton")
         self.restart_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
@@ -199,6 +282,10 @@ class SecondaryPanel(QFrame):
         self.corner_combo = QComboBox()
         self.corner_combo.addItems(CORNER_OPTIONS)
 
+        self.reset_preferences_button = QPushButton("Reset Preferences To Default")
+        self.reset_preferences_button.setObjectName("restartButton")
+        self.reset_preferences_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
+
         left_col.addLayout(self._labeled_row("Caption font size", self.font_size_slider))
         left_col.addLayout(self._labeled_row("Overlay opacity", self.opacity_slider))
         left_col.addWidget(self.show_raw_tokens_checkbox)
@@ -212,8 +299,10 @@ class SecondaryPanel(QFrame):
         right_col.addLayout(self._labeled_row("Overlay corner", self.corner_combo))
         right_col.addStretch(1)
 
-        root.addLayout(left_col, 1)
-        root.addLayout(right_col, 1)
+        columns_row.addLayout(left_col, 1)
+        columns_row.addLayout(right_col, 1)
+        root.addLayout(columns_row)
+        root.addWidget(self.reset_preferences_button)
 
         self.setStyleSheet(
             f"""
@@ -307,19 +396,21 @@ class SecondaryPanel(QFrame):
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, startup_font_size: int = DEFAULT_FONT_SIZE):
+    def __init__(self, defaults, preferences):
         super().__init__()
 
+        self.defaults = defaults
+        self.preferences = preferences
         self.caption_text = LABEL_DEFAULT_TEXT
-        self.caption_font_size = startup_font_size
-        self.pending_font_size = startup_font_size
-        self.overlay_opacity = DEFAULT_OPACITY
-        self.show_raw_tokens = False
-        self.freeze_on_detection_loss = False
-        self.enable_llm_smoothing = False
-        self.model_selection = MODEL_OPTIONS[0]
-        self.show_latency = False
-        self.corner = DEFAULT_CORNER
+        self.caption_font_size = self.preferences["font_size"]
+        self.pending_font_size = self.preferences["font_size"]
+        self.overlay_opacity = self.preferences["opacity_percent"] / 100.0
+        self.show_raw_tokens = self.preferences["show_raw_tokens"]
+        self.freeze_on_detection_loss = self.preferences["freeze_on_detection_loss"]
+        self.enable_llm_smoothing = self.preferences["enable_llm_smoothing"]
+        self.model_selection = self.preferences["model_selection"]
+        self.show_latency = self.preferences["show_latency"]
+        self.corner = self.preferences["corner"]
         self.secondary_expanded = False
         self.secondary_current_height = 0
 
@@ -346,7 +437,6 @@ class OverlayWindow(QWidget):
         self._rebuild_stack()
         self._connect_signals()
         self.primary_panel.set_expanded_icon(self.secondary_expanded)
-
         self.apply_state_to_ui()
 
         app = QApplication.instance()
@@ -357,6 +447,17 @@ class OverlayWindow(QWidget):
         primary_screen = QGuiApplication.primaryScreen()
         if primary_screen is not None:
             primary_screen.geometryChanged.connect(lambda _rect: self._position_window())
+
+    def _write_preferences(self):
+        self.preferences["font_size"] = self.pending_font_size
+        self.preferences["opacity_percent"] = int(round(self.overlay_opacity * 100))
+        self.preferences["show_raw_tokens"] = self.show_raw_tokens
+        self.preferences["freeze_on_detection_loss"] = self.freeze_on_detection_loss
+        self.preferences["enable_llm_smoothing"] = self.enable_llm_smoothing
+        self.preferences["model_selection"] = self.model_selection
+        self.preferences["show_latency"] = self.show_latency
+        self.preferences["corner"] = self.corner
+        save_user_preferences(self.preferences)
 
     def _connect_signals(self):
         self.primary_panel.toggle_requested.connect(self.toggle_secondary_panel)
@@ -371,6 +472,7 @@ class OverlayWindow(QWidget):
         self.secondary_panel.show_latency_checkbox.toggled.connect(self.on_show_latency_toggled)
         self.secondary_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
         self.secondary_panel.restart_button.clicked.connect(self.on_restart_requested)
+        self.secondary_panel.reset_preferences_button.clicked.connect(self.on_reset_preferences_requested)
 
     def _rebuild_stack(self):
         while self.root_layout.count():
@@ -456,7 +558,7 @@ class OverlayWindow(QWidget):
         self.setWindowOpacity(self.overlay_opacity)
 
         self.secondary_panel.font_size_slider.setValue(self.pending_font_size)
-        self.secondary_panel.opacity_slider.setValue(int(self.overlay_opacity * 100))
+        self.secondary_panel.opacity_slider.setValue(int(round(self.overlay_opacity * 100)))
         self.secondary_panel.show_raw_tokens_checkbox.setChecked(self.show_raw_tokens)
         self.secondary_panel.freeze_on_loss_checkbox.setChecked(self.freeze_on_detection_loss)
         self.secondary_panel.enable_llm_checkbox.setChecked(self.enable_llm_smoothing)
@@ -477,57 +579,50 @@ class OverlayWindow(QWidget):
             self._update_mask()
 
     def on_font_size_changed(self, value: int):
-        clamped = max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, int(value)))
-        self.pending_font_size = clamped
+        self.pending_font_size = max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, int(value)))
+        self._write_preferences()
 
     def on_opacity_changed(self, value: int):
-        clamped = max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, value))
+        clamped = max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, int(value)))
         self.overlay_opacity = clamped / 100.0
         self.setWindowOpacity(self.overlay_opacity)
+        self._write_preferences()
 
     def on_show_raw_tokens_toggled(self, checked: bool):
         self.show_raw_tokens = checked
+        self._write_preferences()
 
     def on_freeze_on_loss_toggled(self, checked: bool):
         self.freeze_on_detection_loss = checked
+        self._write_preferences()
 
     def on_enable_llm_toggled(self, checked: bool):
         self.enable_llm_smoothing = checked
+        self._write_preferences()
 
     def on_model_changed(self, text: str):
         self.model_selection = text
+        self._write_preferences()
 
     def on_show_latency_toggled(self, checked: bool):
         self.show_latency = checked
+        self._write_preferences()
 
     def on_corner_changed(self, text: str):
         self.corner = text
         self._rebuild_stack()
         self._refresh_window_geometry(reposition=True)
+        self._write_preferences()
 
     def on_restart_requested(self):
-        target_font_size = str(max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, self.pending_font_size)))
-        current_args = sys.argv[1:]
-        filtered_args = []
-        skip_next = False
+        self._write_preferences()
+        restart_current_process()
 
-        for index, arg in enumerate(current_args):
-            if skip_next:
-                skip_next = False
-                continue
-            if arg == FONT_SIZE_ARG:
-                if index + 1 < len(current_args):
-                    skip_next = True
-                continue
-            filtered_args.append(arg)
-
-        filtered_args.extend([FONT_SIZE_ARG, target_font_size])
-
-        if getattr(sys, "frozen", False):
-            os.execv(sys.executable, [sys.executable] + filtered_args)
-        else:
-            script_path = os.path.abspath(sys.argv[0])
-            os.execv(sys.executable, [sys.executable, script_path] + filtered_args)
+    def on_reset_preferences_requested(self):
+        defaults = _read_json(DEFAULT_SETTINGS_PATH)
+        normalized_defaults = _sanitize_settings(defaults if defaults is not None else DEFAULT_SETTINGS)
+        save_user_preferences(normalized_defaults)
+        restart_current_process()
 
     def set_caption_text(self, text: str):
         self.caption_text = text or LABEL_DEFAULT_TEXT
@@ -555,25 +650,13 @@ class OverlayWindow(QWidget):
         self.secondary_animation.start()
 
 
-def parse_startup_font_size(argv):
-    value = DEFAULT_FONT_SIZE
-    for index, arg in enumerate(argv):
-        if arg == FONT_SIZE_ARG and index + 1 < len(argv):
-            try:
-                parsed = int(argv[index + 1])
-                value = max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, parsed))
-            except ValueError:
-                value = DEFAULT_FONT_SIZE
-            break
-    return value
-
-
 def main():
+    defaults, preferences = ensure_preferences_files()
+
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
 
-    startup_font_size = parse_startup_font_size(sys.argv[1:])
-    overlay = OverlayWindow(startup_font_size=startup_font_size)
+    overlay = OverlayWindow(defaults=defaults, preferences=preferences)
     overlay.show()
     overlay.raise_()
 
