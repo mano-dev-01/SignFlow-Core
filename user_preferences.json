@@ -1,6 +1,6 @@
 {
-  "font_size": 18,
-  "opacity_percent": 83,
+  "caption_box_size": 110,
+  "opacity_percent": 80,
   "show_raw_tokens": false,
   "freeze_on_detection_loss": false,
   "enable_llm_smoothing": false,

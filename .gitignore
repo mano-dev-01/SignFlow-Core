@@ -12,3 +12,6 @@ dist/
 # IDE
 .vscode/
 .idea/
+
+# User preferences
+user_preferences.json
