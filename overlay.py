@@ -1,4 +1,5 @@
-﻿import sys
+﻿import os
+import sys
 
 from PyQt5.QtCore import QAbstractAnimation, QEasingCurve, Qt, QVariantAnimation, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics, QGuiApplication, QRegion
@@ -31,7 +32,7 @@ CAPTION_VERTICAL_PADDING = 8
 CAPTION_MIN_FONT_SIZE = 16
 CAPTION_MAX_FONT_SIZE = 48
 DEFAULT_FONT_SIZE = 18
-DEFAULT_OPACITY = 0.85
+DEFAULT_OPACITY = 0.80
 MIN_OPACITY_PERCENT = 50
 MAX_OPACITY_PERCENT = 100
 SECONDARY_EXPANDED_HEIGHT = 360
@@ -60,6 +61,7 @@ RADIUS = 14
 LABEL_DEFAULT_TEXT = "Captions Placeholder"
 MODEL_OPTIONS = ["Local Small", "Local Medium"]
 CORNER_OPTIONS = [CORNER_TOP_LEFT, CORNER_TOP_RIGHT, CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT]
+FONT_SIZE_ARG = "--font-size"
 
 
 class PrimaryPanel(QFrame):
@@ -118,8 +120,6 @@ class PrimaryPanel(QFrame):
             }}
             """
         )
-
-        self.set_caption_font_size(DEFAULT_FONT_SIZE)
 
     def set_caption_text(self, text: str):
         self.caption_label.setText(text or LABEL_DEFAULT_TEXT)
@@ -185,6 +185,9 @@ class SecondaryPanel(QFrame):
 
         self.show_raw_tokens_checkbox = QCheckBox("Show raw tokens")
         self.freeze_on_loss_checkbox = QCheckBox("Freeze captions on detection loss")
+        self.restart_button = QPushButton("Restart")
+        self.restart_button.setObjectName("restartButton")
+        self.restart_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
 
         self.enable_llm_checkbox = QCheckBox("Enable LLM smoothing")
 
@@ -200,6 +203,7 @@ class SecondaryPanel(QFrame):
         left_col.addLayout(self._labeled_row("Overlay opacity", self.opacity_slider))
         left_col.addWidget(self.show_raw_tokens_checkbox)
         left_col.addWidget(self.freeze_on_loss_checkbox)
+        left_col.addWidget(self.restart_button)
         left_col.addStretch(1)
 
         right_col.addWidget(self.enable_llm_checkbox)
@@ -248,9 +252,12 @@ class SecondaryPanel(QFrame):
             }}
             QComboBox::down-arrow {{
                 image: none;
-                border: none;
                 width: 0px;
                 height: 0px;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 7px solid rgba(255, 255, 255, 210);
+                margin-top: 2px;
             }}
             QComboBox QAbstractItemView {{
                 background-color: rgba(40, 40, 43, 240);
@@ -275,15 +282,16 @@ class SecondaryPanel(QFrame):
                 margin: -5px 0;
                 border-radius: 8px;
             }}
-            QCheckBox::indicator {{
-                width: 18px;
-                height: 18px;
-                border: 1px solid rgba(255, 255, 255, 80);
-                border-radius: 3px;
-                background: rgba(255, 255, 255, 20);
+            QPushButton#restartButton {{
+                background-color: {BUTTON_BG};
+                border: 1px solid {BORDER_COLOR};
+                border-radius: 8px;
+                color: {TEXT_COLOR};
+                font: 600 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
+                padding: 4px 10px;
             }}
-            QCheckBox::indicator:checked {{
-                background: rgba(255, 255, 255, 170);
+            QPushButton#restartButton:hover {{
+                background-color: {BUTTON_HOVER_BG};
             }}
             """
         )
@@ -299,11 +307,12 @@ class SecondaryPanel(QFrame):
 
 
 class OverlayWindow(QWidget):
-    def __init__(self):
+    def __init__(self, startup_font_size: int = DEFAULT_FONT_SIZE):
         super().__init__()
 
         self.caption_text = LABEL_DEFAULT_TEXT
-        self.caption_font_size = DEFAULT_FONT_SIZE
+        self.caption_font_size = startup_font_size
+        self.pending_font_size = startup_font_size
         self.overlay_opacity = DEFAULT_OPACITY
         self.show_raw_tokens = False
         self.freeze_on_detection_loss = False
@@ -361,6 +370,7 @@ class OverlayWindow(QWidget):
         self.secondary_panel.model_combo.currentTextChanged.connect(self.on_model_changed)
         self.secondary_panel.show_latency_checkbox.toggled.connect(self.on_show_latency_toggled)
         self.secondary_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
+        self.secondary_panel.restart_button.clicked.connect(self.on_restart_requested)
 
     def _rebuild_stack(self):
         while self.root_layout.count():
@@ -445,7 +455,7 @@ class OverlayWindow(QWidget):
         self.primary_panel.set_caption_font_size(self.caption_font_size)
         self.setWindowOpacity(self.overlay_opacity)
 
-        self.secondary_panel.font_size_slider.setValue(self.caption_font_size)
+        self.secondary_panel.font_size_slider.setValue(self.pending_font_size)
         self.secondary_panel.opacity_slider.setValue(int(self.overlay_opacity * 100))
         self.secondary_panel.show_raw_tokens_checkbox.setChecked(self.show_raw_tokens)
         self.secondary_panel.freeze_on_loss_checkbox.setChecked(self.freeze_on_detection_loss)
@@ -467,9 +477,8 @@ class OverlayWindow(QWidget):
             self._update_mask()
 
     def on_font_size_changed(self, value: int):
-        self.caption_font_size = value
-        self.primary_panel.set_caption_font_size(value)
-        self._refresh_window_geometry(reposition=True)
+        clamped = max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, int(value)))
+        self.pending_font_size = clamped
 
     def on_opacity_changed(self, value: int):
         clamped = max(MIN_OPACITY_PERCENT, min(MAX_OPACITY_PERCENT, value))
@@ -495,6 +504,30 @@ class OverlayWindow(QWidget):
         self.corner = text
         self._rebuild_stack()
         self._refresh_window_geometry(reposition=True)
+
+    def on_restart_requested(self):
+        target_font_size = str(max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, self.pending_font_size)))
+        current_args = sys.argv[1:]
+        filtered_args = []
+        skip_next = False
+
+        for index, arg in enumerate(current_args):
+            if skip_next:
+                skip_next = False
+                continue
+            if arg == FONT_SIZE_ARG:
+                if index + 1 < len(current_args):
+                    skip_next = True
+                continue
+            filtered_args.append(arg)
+
+        filtered_args.extend([FONT_SIZE_ARG, target_font_size])
+
+        if getattr(sys, "frozen", False):
+            os.execv(sys.executable, [sys.executable] + filtered_args)
+        else:
+            script_path = os.path.abspath(sys.argv[0])
+            os.execv(sys.executable, [sys.executable, script_path] + filtered_args)
 
     def set_caption_text(self, text: str):
         self.caption_text = text or LABEL_DEFAULT_TEXT
@@ -522,12 +555,25 @@ class OverlayWindow(QWidget):
         self.secondary_animation.start()
 
 
+def parse_startup_font_size(argv):
+    value = DEFAULT_FONT_SIZE
+    for index, arg in enumerate(argv):
+        if arg == FONT_SIZE_ARG and index + 1 < len(argv):
+            try:
+                parsed = int(argv[index + 1])
+                value = max(CAPTION_MIN_FONT_SIZE, min(CAPTION_MAX_FONT_SIZE, parsed))
+            except ValueError:
+                value = DEFAULT_FONT_SIZE
+            break
+    return value
+
 
 def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
 
-    overlay = OverlayWindow()
+    startup_font_size = parse_startup_font_size(sys.argv[1:])
+    overlay = OverlayWindow(startup_font_size=startup_font_size)
     overlay.show()
     overlay.raise_()
 
