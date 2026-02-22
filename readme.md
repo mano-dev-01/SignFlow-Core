@@ -1,103 +1,61 @@
-﻿# SignFlow
+# SignFlow
 
-SignFlow is a real-time sign language to English captioning system with a floating caption overlay.
+SignFlow is a real-time sign language to English captioning project, built around a live desktop overlay experience for calls, streams, and demos.
+
+Python version: `3.10`
 
 ## Current Status
 
-The current implementation is focused on a stable, demo-ready overlay UI shell.
+The project currently has a working Windows overlay application and sender-side scaffolding.
 
-Implemented now:
-- Windows-only PyQt5 desktop overlay UI
-- Always-on-top, frameless caption overlay
-- Expand/collapse secondary settings panel
-- Persistent settings via JSON
+What is implemented now:
+- Stable PyQt5 overlay window (`overlay.py`) for live caption display
+- Always-on-top, frameless overlay UX designed for in-call usage
+- Configurable settings panel with persistent user preferences
+- Restart-safe settings flow for layout-sensitive controls
+- Companion sender entrypoint (`realtime_sender.py`) for pipeline-side integration
 
-Not connected yet:
-- Live ML/caption pipeline integration
+What is not complete yet:
+- End-to-end production inference pipeline integration
+- Finalized smoothing/post-processing logic
+- Full system validation across varied real-world signing conditions
 
-Python version: 3.10
+## Near-Term Roadmap
 
-## Overlay Features
+Planned next steps:
+- Connect overlay to finalized real-time recognition outputs
+- Improve temporal stability and caption quality during fast signing
+- Add robust latency and drop-handling behavior in live sessions
+- Expand evaluation and benchmarking on representative datasets
+- Harden packaging and startup flow for hackathon/demo deployment
 
-- Frameless, always-on-top overlay window
-- Rounded, minimal dark UI
-- Clickable overlay (not click-through)
-- Corner placement:
-  - Top Left
-  - Top Right
-  - Bottom Left
-  - Bottom Right
-- Expand/collapse settings panel with animation
-- Caption display area with placeholder text
-- Quit button and panel toggle button
+## Project Structure
 
-## Settings Panel
+- `overlay.py`: Windows desktop overlay UI (PyQt5)
+- `realtime_sender.py`: runtime sender/bridge script
+- `default_settings.json`: baseline overlay settings
+- `user_preferences.json`: persisted per-user settings
+- `run_signflow.bat`: Windows run helper
 
-Available controls:
+## Setup (Windows)
 
-- Caption font size (`16-48`)
-- Overlay opacity (`50%-100%`)
-- Show raw tokens (toggle)
-- Freeze captions on detection loss (toggle)
-- Enable LLM smoothing (toggle)
-- Model selection (`Local Small`, `Local Medium`)
-- Show latency (toggle)
-- Overlay corner selection
-
-## Restart-Based Font Apply
-
-Font size changes are deferred:
-- Moving the font slider updates a pending preference only.
-- Click `Restart` to relaunch and apply the new font size.
-- This avoids runtime dimension shifts while testing layout stability.
-
-## Preferences
-
-Settings are persisted in project root:
-
-- `default_settings.json`: default settings source
-- `user_preferences.json`: user settings loaded on startup
-
-`Reset Preferences To Default` restores defaults and restarts the app.
-
-## Opacity Behavior
-
-- Slider range is fixed at `50%` to `100%`.
-- At `100%`, the overlay is fully opaque.
-
-## Windows
-
-1. Create virtual environment:
+1. Create venv  
 `py -3.10 -m venv venv`
 
-2. Activate virtual environment:
+2. Activate  
 `venv\Scripts\activate`
 
-3. Install dependencies:
-`python -m pip install --upgrade pip setuptools wheel`
+3. Install dependencies  
+`python -m pip install --upgrade pip setuptools wheel`  
 `pip install -r requirements.txt`
 
-4. Run:
+4. Run  
 `run_signflow.bat`
 
 Manual run (two terminals):
-Terminal 1: `python overlay.py`
-Terminal 2: `python realtime_sender.py`
+- Terminal 1: `python overlay.py`
+- Terminal 2: `python realtime_sender.py`
 
-## Linux
+## Notes on Linux
 
-Overlay UI is Windows-only. Linux instructions below are for the broader project flow and may not support the current overlay behavior.
-
-1. Create virtual environment:
-`python3.10 -m venv venv`
-
-2. Activate virtual environment:
-`source venv/bin/activate`
-
-3. Install dependencies:
-`python -m pip install --upgrade pip setuptools wheel`
-`pip install -r requirements.txt`
-
-4. Run (two terminals):
-Terminal 1: `python overlay.py`
-Terminal 2: `python realtime_sender.py`
+Linux setup commands can work for non-UI components, but the current overlay target is Windows-first.
