@@ -1,10 +1,24 @@
 ﻿import json
 import os
 import sys
+import time
 from pathlib import Path
 
-from PyQt5.QtCore import QAbstractAnimation, QEasingCurve, QRectF, QSize, Qt, QVariantAnimation, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QIcon, QPainter, QPainterPath, QPen, QPixmap, QRegion
+import mss
+from PyQt5.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QPoint,
+    QRect,
+    QRectF,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    QVariantAnimation,
+    pyqtSignal,
+)
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QGuiApplication, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap, QRegion
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -24,6 +38,19 @@ ENABLE_COLLAPSE_ANIMATION = True
 LABEL_DEFAULT_TEXT = "Captions Placeholder"
 FONT_FAMILY = "Segoe UI"
 SECONDARY_ACTION_INDICATOR_ACTIVE = False
+
+# CAPTURE / PREVIEW
+CAPTURE_FPS = 30
+SELECTION_INSTRUCTION_TEXT = "Drag to select capture region. Press ENTER or SPACE to confirm."
+SELECTION_TEXT_FONT_SIZE = 15
+SELECTION_TEXT_MARGIN_TOP = 20
+SELECTION_DIM_ALPHA = 120
+SELECTION_BORDER_WIDTH = 1
+HIGHLIGHT_BORDER_WIDTH = 1
+HIGHLIGHT_DURATION_MS = 1000
+PREVIEW_WIDTH = 320
+PREVIEW_HEIGHT = 180
+PREVIEW_MARGIN = 24
 
 # OVERLAY WINDOW
 OVERLAY_WIDTH = 520
@@ -167,6 +194,43 @@ def restart_current_process():
     else:
         script_path = os.path.abspath(sys.argv[0])
         os.execv(sys.executable, [sys.executable, script_path] + sys.argv[1:])
+
+
+FRAME_DISPATCHER = None
+
+
+def process_frame(frame):
+    if callable(FRAME_DISPATCHER):
+        FRAME_DISPATCHER(frame)
+
+
+def stop_capture():
+    pass
+
+
+def _frame_to_qimage(frame):
+    if not isinstance(frame, dict):
+        return None
+    rgb = frame.get("rgb")
+    width = int(frame.get("width", 0) or 0)
+    height = int(frame.get("height", 0) or 0)
+    if rgb is None or width <= 0 or height <= 0:
+        return None
+    bytes_per_line = width * 3
+    image = QImage(rgb, width, height, bytes_per_line, QImage.Format_RGB888)
+    return image.copy()
+
+
+def _set_window_excluded_from_capture(widget):
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        hwnd = int(widget.winId())
+        ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, 0x11)
+    except Exception:
+        pass
 
 
 class PrimaryPanel(QFrame):
@@ -388,13 +452,10 @@ class SecondaryPanel(QFrame):
         self.clear_button.setIcon(self._build_clear_icon(SECONDARY_ACTION_ICON_SIZE))
         self._apply_play_pause_icon()
 
-        indicator_symbol = "●" if SECONDARY_ACTION_INDICATOR_ACTIVE else "○"
-        indicator_state = "Active" if SECONDARY_ACTION_INDICATOR_ACTIVE else "Inactive"
-        indicator_symbol_color = "rgb(80, 160, 255)" if SECONDARY_ACTION_INDICATOR_ACTIVE else "rgb(145, 145, 145)"
-        self.status_indicator = QLabel(
-            f"Status: {indicator_state} "
-            f"<span style=\"color:{indicator_symbol_color}; font-size:16px;\">{indicator_symbol}</span>"
-        )
+        self._status_active = False
+        self.status_indicator = QLabel()
+        self._apply_status_indicator()
+
         self.status_indicator.setObjectName("actionStatus")
         self.status_indicator.setAlignment(Qt.AlignCenter)
         self.status_indicator.setTextFormat(Qt.RichText)
@@ -671,6 +732,23 @@ class SecondaryPanel(QFrame):
         painter.end()
         return QIcon(pix)
 
+    def set_playing(self, is_playing: bool):
+        self._is_playing = bool(is_playing)
+        self._apply_play_pause_icon()
+
+    def _apply_status_indicator(self):
+        indicator_symbol = "●" if self._status_active else "○"
+        indicator_state = "Active" if self._status_active else "Inactive"
+        indicator_symbol_color = "rgb(80, 200, 120)" if self._status_active else "rgb(145, 145, 145)"
+        self.status_indicator.setText(
+            f"Status: {indicator_state} "
+            f"<span style=\"color:{indicator_symbol_color}; font-size:16px;\">{indicator_symbol}</span>"
+        )
+
+    def set_status_active(self, active: bool):
+        self._status_active = bool(active)
+        self._apply_status_indicator()
+
     def _apply_play_pause_icon(self):
         if self._is_playing:
             self.play_pause_button.setIcon(self._build_pause_icon(SECONDARY_ACTION_ICON_SIZE))
@@ -681,6 +759,236 @@ class SecondaryPanel(QFrame):
         self._is_playing = not self._is_playing
         self._apply_play_pause_icon()
         self.play_pause_toggled.emit(self._is_playing)
+
+
+class RegionSelectionOverlay(QWidget):
+    selection_confirmed = pyqtSignal(QRect)
+    selection_cancelled = pyqtSignal()
+
+    def __init__(self):
+        super().__init__()
+        self._dragging = False
+        self._origin = QPoint()
+        self._current = QPoint()
+        self._selection_rect = None
+
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_DeleteOnClose, True)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.CrossCursor)
+
+        screen = QGuiApplication.primaryScreen()
+        geometry = screen.virtualGeometry() if screen is not None else QRect(0, 0, 800, 600)
+        self.setGeometry(geometry)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.raise_()
+        self.activateWindow()
+        self.grabKeyboard()
+        _set_window_excluded_from_capture(self)
+
+    def closeEvent(self, event):
+        self.releaseKeyboard()
+        super().closeEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        self._dragging = True
+        self._origin = event.pos()
+        self._current = event.pos()
+        self._selection_rect = QRect(self._origin, self._current).normalized()
+        self.update()
+
+    def mouseMoveEvent(self, event):
+        if not self._dragging:
+            return
+        self._current = event.pos()
+        self._selection_rect = QRect(self._origin, self._current).normalized()
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+        self._dragging = False
+        self._current = event.pos()
+        self._selection_rect = QRect(self._origin, self._current).normalized()
+        self.update()
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space):
+            if self._has_valid_selection():
+                self.selection_confirmed.emit(self._selection_rect)
+            else:
+                self.selection_cancelled.emit()
+            self.close()
+            return
+        if event.key() == Qt.Key_Escape:
+            self.selection_cancelled.emit()
+            self.close()
+            return
+        super().keyPressEvent(event)
+
+    def _has_valid_selection(self):
+        if self._selection_rect is None:
+            return False
+        return self._selection_rect.width() > 0 and self._selection_rect.height() > 0
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        full_rect = self.rect()
+        dim_color = QColor(0, 0, 0, SELECTION_DIM_ALPHA)
+
+        if self._has_valid_selection():
+            path = QPainterPath()
+            path.addRect(QRectF(full_rect))
+            path.addRect(QRectF(self._selection_rect))
+            path.setFillRule(Qt.OddEvenFill)
+            painter.fillPath(path, dim_color)
+            pen = QPen(QColor(255, 255, 255, 230), SELECTION_BORDER_WIDTH)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(self._selection_rect)
+        else:
+            painter.fillRect(full_rect, dim_color)
+
+        font = QFont(FONT_FAMILY, SELECTION_TEXT_FONT_SIZE)
+        font.setWeight(QFont.DemiBold)
+        painter.setFont(font)
+        metrics = QFontMetrics(font)
+        text = SELECTION_INSTRUCTION_TEXT
+        text_width = metrics.horizontalAdvance(text)
+        text_height = metrics.height()
+
+        padding_h = 18
+        padding_v = 8
+        label_width = text_width + (padding_h * 2)
+        label_height = text_height + (padding_v * 2)
+        label_x = max(20, int((self.width() - label_width) / 2))
+        label_rect = QRectF(label_x, 0, label_width, label_height)
+
+        radius = 10
+        label_path = QPainterPath()
+        label_path.moveTo(label_rect.left(), label_rect.top())
+        label_path.lineTo(label_rect.right(), label_rect.top())
+        label_path.lineTo(label_rect.right(), label_rect.bottom() - radius)
+        label_path.quadTo(label_rect.right(), label_rect.bottom(), label_rect.right() - radius, label_rect.bottom())
+        label_path.lineTo(label_rect.left() + radius, label_rect.bottom())
+        label_path.quadTo(label_rect.left(), label_rect.bottom(), label_rect.left(), label_rect.bottom() - radius)
+        label_path.lineTo(label_rect.left(), label_rect.top())
+
+        painter.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        painter.setBrush(QColor(28, 28, 30, 230))
+        painter.drawPath(label_path)
+
+        text_rect = QRectF(label_rect)
+        painter.setPen(QColor(255, 255, 255, 235))
+        painter.drawText(text_rect, Qt.AlignCenter, text)
+
+
+class HighlightOverlay(QWidget):
+    def __init__(self, rect: QRect):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setGeometry(rect)
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        pen = QPen(QColor(255, 255, 255, 235), HIGHLIGHT_BORDER_WIDTH)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        rect = self.rect().adjusted(0, 0, -HIGHLIGHT_BORDER_WIDTH, -HIGHLIGHT_BORDER_WIDTH)
+        painter.drawRect(rect)
+
+
+class PreviewWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setFixedSize(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+
+        QTimer.singleShot(0, lambda: _set_window_excluded_from_capture(self))
+
+        self.label = QLabel()
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setStyleSheet("background-color: rgba(0, 0, 0, 210); border: 1px solid rgba(255, 255, 255, 40);")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.label)
+
+        self._position_near_corner()
+
+    def _position_near_corner(self):
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        geo = screen.availableGeometry()
+        x = geo.x() + geo.width() - self.width() - PREVIEW_MARGIN
+        y = geo.y() + PREVIEW_MARGIN
+        self.move(x, y)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._position_near_corner()
+        _set_window_excluded_from_capture(self)
+
+    def update_frame(self, image: QImage):
+        if image is None:
+            return
+        pixmap = QPixmap.fromImage(image)
+        scaled = pixmap.scaled(self.label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.label.setPixmap(scaled)
+
+
+class ScreenCaptureThread(QThread):
+    frame_captured = pyqtSignal(object)
+
+    def __init__(self, region: dict, parent=None):
+        super().__init__(parent)
+        self._region = dict(region) if region else None
+        self._running = True
+
+    def run(self):
+        if not self._region:
+            return
+        monitor = {
+            "left": int(self._region["x"]),
+            "top": int(self._region["y"]),
+            "width": int(self._region["width"]),
+            "height": int(self._region["height"]),
+        }
+        frame_interval = 1.0 / float(CAPTURE_FPS)
+        with mss.mss() as sct:
+            next_frame_time = time.perf_counter()
+            while self._running:
+                screenshot = sct.grab(monitor)
+                self.frame_captured.emit(
+                    {
+                        "rgb": screenshot.rgb,
+                        "width": screenshot.width,
+                        "height": screenshot.height,
+                    }
+                )
+                next_frame_time += frame_interval
+                sleep_for = next_frame_time - time.perf_counter()
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                else:
+                    next_frame_time = time.perf_counter()
+
+    def stop(self):
+        self._running = False
+        self.wait(500)
 
 
 class OverlayWindow(QWidget):
@@ -703,8 +1011,18 @@ class OverlayWindow(QWidget):
         self.secondary_expanded = False
         self.secondary_current_height = 0
 
+        self.capture_state = {"region": None, "paused": False}
+        self.capture_thread = None
+        self.preview_window = None
+        self.selection_overlay = None
+        self.highlight_overlay = None
+
+        global FRAME_DISPATCHER
+        FRAME_DISPATCHER = self._handle_frame
+
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        QTimer.singleShot(0, lambda: _set_window_excluded_from_capture(self))
 
         self.root_layout = QVBoxLayout(self)
         self.root_layout.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
@@ -736,6 +1054,10 @@ class OverlayWindow(QWidget):
         primary_screen = QGuiApplication.primaryScreen()
         if primary_screen is not None:
             primary_screen.geometryChanged.connect(lambda _rect: self._position_window())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        _set_window_excluded_from_capture(self)
 
     def _write_preferences(self):
         self.preferences["caption_box_size"] = self.pending_caption_box_size
@@ -858,6 +1180,7 @@ class OverlayWindow(QWidget):
         self.secondary_panel.model_combo.setCurrentText(self.model_selection)
         self.secondary_panel.show_latency_checkbox.setChecked(self.show_latency)
         self.secondary_panel.corner_combo.setCurrentText(self.corner)
+        self.secondary_panel.set_status_active(False)
 
         self._set_secondary_height(0, force_hide=True)
         self._refresh_window_geometry(reposition=True)
@@ -911,20 +1234,134 @@ class OverlayWindow(QWidget):
         self._write_preferences()
         restart_current_process()
 
+    def _start_region_selection(self):
+        if self.selection_overlay is not None:
+            self.selection_overlay.close()
+            self.selection_overlay = None
+        self.selection_overlay = RegionSelectionOverlay()
+        self.selection_overlay.selection_confirmed.connect(self._on_region_selected)
+        self.selection_overlay.selection_cancelled.connect(self._on_region_selection_cancelled)
+        self.selection_overlay.show()
+        self.selection_overlay.raise_()
+        self.selection_overlay.activateWindow()
+
+    def _on_region_selected(self, rect: QRect):
+        if self.selection_overlay is not None:
+            self.selection_overlay.close()
+            self.selection_overlay = None
+        normalized = rect.normalized()
+        if normalized.width() <= 0 or normalized.height() <= 0:
+            self._on_region_selection_cancelled()
+            return
+        self._set_capture_state_from_rect(normalized)
+        self._show_highlight(normalized)
+
+    def _on_region_selection_cancelled(self):
+        if self.selection_overlay is not None:
+            self.selection_overlay.close()
+            self.selection_overlay = None
+        self.show()
+        self.raise_()
+
+    def _show_highlight(self, rect: QRect):
+        if self.highlight_overlay is not None:
+            self.highlight_overlay.close()
+        self.highlight_overlay = HighlightOverlay(rect)
+        self.highlight_overlay.show()
+        self.highlight_overlay.raise_()
+        QTimer.singleShot(HIGHLIGHT_DURATION_MS, self._finish_capture_start)
+
+    def _finish_capture_start(self):
+        if self.highlight_overlay is not None:
+            self.highlight_overlay.close()
+            self.highlight_overlay = None
+        self.show()
+        self.raise_()
+        self._start_capture()
+
+    def _set_capture_state_from_rect(self, rect: QRect):
+        self.capture_state = {
+            "region": {
+                "x": int(rect.x()),
+                "y": int(rect.y()),
+                "width": int(rect.width()),
+                "height": int(rect.height()),
+            },
+            "paused": False,
+        }
+
+    def _start_capture(self):
+        if not self.capture_state or not self.capture_state.get("region"):
+            return
+        self._stop_capture_thread()
+        self.capture_state["paused"] = False
+        self.secondary_panel.set_playing(True)
+        self.secondary_panel.set_status_active(True)
+        self._ensure_preview_window()
+        self.capture_thread = ScreenCaptureThread(self.capture_state["region"])
+        self.capture_thread.frame_captured.connect(self._on_frame_captured)
+        self.capture_thread.start()
+
+    def _stop_capture_thread(self):
+        if self.capture_thread is None:
+            return
+        self.capture_thread.stop()
+        self.capture_thread = None
+
+    def _ensure_preview_window(self):
+        if self.preview_window is None:
+            self.preview_window = PreviewWindow()
+        self.preview_window.show()
+        self.preview_window.raise_()
+
+    def _on_frame_captured(self, frame):
+        process_frame(frame)
+
+    def _handle_frame(self, frame):
+        if not self.capture_state or self.capture_state.get("paused"):
+            return
+        if self.preview_window is None:
+            return
+        image = _frame_to_qimage(frame)
+        if image is None:
+            return
+        self.preview_window.update_frame(image)
+
     def on_crop_clicked(self):
-        pass
+        self.hide()
+        QTimer.singleShot(50, self._start_region_selection)
 
     def on_play_pause_toggled(self, _is_playing: bool):
-        pass
+        if self.capture_state is None:
+            self.capture_state = {"region": None, "paused": not _is_playing}
+        else:
+            self.capture_state["paused"] = not _is_playing
+        self.secondary_panel.set_status_active(bool(_is_playing))
 
     def on_clear_clicked(self):
-        pass
+        self.secondary_panel.set_status_active(False)
+        stop_capture()
 
     def on_reset_preferences_requested(self):
         defaults = _read_json(DEFAULT_SETTINGS_PATH)
         normalized_defaults = _sanitize_settings(defaults if defaults is not None else DEFAULT_SETTINGS)
         save_user_preferences(normalized_defaults)
         restart_current_process()
+
+    def closeEvent(self, event):
+        self._stop_capture_thread()
+        if self.preview_window is not None:
+            self.preview_window.close()
+            self.preview_window = None
+        if self.selection_overlay is not None:
+            self.selection_overlay.close()
+            self.selection_overlay = None
+        if self.highlight_overlay is not None:
+            self.highlight_overlay.close()
+            self.highlight_overlay = None
+        global FRAME_DISPATCHER
+        FRAME_DISPATCHER = None
+        super().closeEvent(event)
 
     def set_caption_text(self, text: str):
         self.caption_text = text or LABEL_DEFAULT_TEXT
