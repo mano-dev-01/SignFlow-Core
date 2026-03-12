@@ -428,7 +428,7 @@ class SecondaryPanel(QFrame):
         self.opacity_slider.setRange(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT)
 
         self.show_raw_tokens_checkbox = ThemedCheckBox("Show raw tokens")
-        self.freeze_on_loss_checkbox = ThemedCheckBox("Freeze captions on detection loss")
+        self.freeze_on_loss_checkbox = ThemedCheckBox("Show model status")
 
         self.restart_button = QPushButton("Restart")
         self.restart_button.setObjectName("restartButton")
@@ -597,8 +597,9 @@ class SecondaryPanel(QFrame):
     @staticmethod
     def _labeled_row(title: str, widget: QWidget):
         layout = QVBoxLayout()
-        layout.setSpacing(10)
+        layout.setSpacing(14 if isinstance(widget, QSlider) else 10)
         label = QLabel(title)
+        label.setMinimumHeight(int(SECONDARY_LABEL_FONT_SIZE * 1.4))
         layout.addWidget(label)
         layout.addWidget(widget)
         return layout
