@@ -15,6 +15,7 @@ from overlay_capture import ScreenCaptureThread
 from overlay_constants import (
     ANIMATION_DURATION_MS,
     CAPTURE_FPS,
+    CAPTURE_FLIP_HORIZONTAL,
     CORNER_BOTTOM_LEFT,
     CORNER_BOTTOM_RIGHT,
     CORNER_TOP_LEFT,
@@ -88,6 +89,7 @@ class OverlayWindow(QWidget):
         self._latest_processed_frame = None
         self._latest_frame_time = None
         self._latest_processed_time = None
+        self._last_prediction = None
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(max(1, int(1000 / max(1, CAPTURE_FPS))))
         self._preview_timer.timeout.connect(self._update_preview_frame)
@@ -330,6 +332,8 @@ class OverlayWindow(QWidget):
         hands = int(self.last_detection.get("hands_detected", 0) or 0)
         left_conf = float(self.last_detection.get("left_conf", 0.0) or 0.0)
         right_conf = float(self.last_detection.get("right_conf", 0.0) or 0.0)
+        prediction = self.last_detection.get("prediction", "")
+        prediction_conf = float(self.last_detection.get("prediction_conf", 0.0) or 0.0)
         hand_state = "Detected" if hands > 0 else "No Hands"
         fps_value = self._processing_fps
         lines = [
@@ -339,6 +343,8 @@ class OverlayWindow(QWidget):
             f"Hands Detected: {hands}",
             f"Left Hand Confidence: {left_conf:.2f}",
             f"Right Hand Confidence: {right_conf:.2f}",
+            f"Prediction: {prediction}",
+            f"Prediction Confidence: {prediction_conf:.2f}",
             f"Processing FPS: {fps_value:.1f}",
         ]
         self.preview_window.set_status_text("\n".join(lines))
@@ -424,10 +430,11 @@ class OverlayWindow(QWidget):
             self._preview_timer.start()
 
         if self.hand_worker is None:
-            self.hand_worker = HandTrackingWorker()
+            self.hand_worker = HandTrackingWorker(flip_horizontal=CAPTURE_FLIP_HORIZONTAL)
             self.hand_worker.status_updated.connect(self._on_detection_status)
             self.hand_worker.frame_processed.connect(self._on_processed_frame)
             self.hand_worker.fps_updated.connect(self._on_processing_fps)
+            self.hand_worker.prediction_updated.connect(self._on_prediction_text)
             self.hand_worker.start()
 
     def _stop_capture_thread(self):
@@ -454,7 +461,7 @@ class OverlayWindow(QWidget):
         process_frame(frame)
 
     def _handle_frame(self, frame):
-        if not self.capture_state or self.capture_state.get("paused"):
+        if not self.capture_state:
             return
         self._latest_frame = frame
         self._latest_frame_time = time.perf_counter()
@@ -472,6 +479,15 @@ class OverlayWindow(QWidget):
     def _on_processing_fps(self, fps: float):
         self._processing_fps = float(fps or 0.0)
 
+    def _on_prediction_text(self, text: str):
+        clean = (text or "").strip()
+        if not clean:
+            return
+        if clean == self._last_prediction:
+            return
+        self._last_prediction = clean
+        self.set_caption_text(clean)
+
     def _update_preview_frame(self):
         if self.preview_window is None:
             return
@@ -479,10 +495,12 @@ class OverlayWindow(QWidget):
             return
 
         frame = None
+        using_processed = False
         now = time.perf_counter()
         if self._latest_processed_frame is not None and self._latest_processed_time is not None:
             if now - self._latest_processed_time < 0.35:
                 frame = self._latest_processed_frame
+                using_processed = True
 
         if frame is None:
             frame = self._latest_frame
@@ -490,6 +508,8 @@ class OverlayWindow(QWidget):
         image = _frame_to_qimage(frame)
         if image is None:
             return
+        if CAPTURE_FLIP_HORIZONTAL and not using_processed:
+            image = image.mirrored(True, False)
         self.preview_window.update_frame(image)
 
     def on_crop_clicked(self):

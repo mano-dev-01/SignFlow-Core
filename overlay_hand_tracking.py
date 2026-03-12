@@ -1,9 +1,16 @@
+import os
 import threading
 import time
 from collections import deque
+from pathlib import Path
 
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
+
+try:
+    import joblib
+except Exception:  # pragma: no cover - allow runtime without joblib
+    joblib = None
 
 try:
     import mediapipe as mp
@@ -62,6 +69,7 @@ def zero_hand_features():
 class HandTracker:
     def __init__(self):
         self.available = mp is not None
+        self._model = None
         self.last_features = None
         self.last_left_features = None
         self.last_right_features = None
@@ -69,6 +77,8 @@ class HandTracker:
             "hands_detected": 0,
             "left_conf": 0.0,
             "right_conf": 0.0,
+            "prediction": "No Hand",
+            "prediction_conf": 0.0,
         }
 
         if not self.available:
@@ -76,6 +86,14 @@ class HandTracker:
             self._mp_draw = None
             self._mp_hands = None
             return
+
+        if joblib is not None:
+            model_path = Path(__file__).resolve().parent / "models" / "model.pkl"
+            if model_path.exists():
+                try:
+                    self._model = joblib.load(os.fspath(model_path))
+                except Exception:
+                    self._model = None
 
         self._mp_hands = mp.solutions.hands
         self._mp_draw = mp.solutions.drawing_utils
@@ -86,7 +104,7 @@ class HandTracker:
             min_tracking_confidence=0.7,
         )
 
-    def process(self, frame: dict):
+    def process(self, frame: dict, flip_horizontal: bool = False):
         if not self.available or frame is None:
             return frame, self.last_status
 
@@ -97,6 +115,8 @@ class HandTracker:
             return frame, self.last_status
 
         image = np.frombuffer(rgb, dtype=np.uint8).reshape(height, width, 3).copy()
+        if flip_horizontal:
+            image = image[:, ::-1, :].copy()
         results = self._hands.process(image)
 
         left_features = None
@@ -104,6 +124,8 @@ class HandTracker:
         left_conf = 0.0
         right_conf = 0.0
         unknown_features = []
+        prediction_text = "No Hand"
+        prediction_conf = 0.0
 
         if results.multi_hand_landmarks:
             for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
@@ -132,22 +154,34 @@ class HandTracker:
             if left_features is None and unknown_features:
                 left_features, left_conf = unknown_features.pop(0)
 
-        primary = right_features if right_features is not None else zero_hand_features()
-        secondary = left_features if left_features is not None else zero_hand_features()
-        only_primary_hand = 1 if right_features is not None and left_features is None else 0
-
-        self.last_features = [only_primary_hand] + primary + secondary
-        self.last_left_features = left_features
-        self.last_right_features = right_features
-
-        hands_detected = 0
         if results.multi_hand_landmarks:
-            hands_detected = len(results.multi_hand_landmarks)
+            primary = right_features if right_features is not None else zero_hand_features()
+            secondary = left_features if left_features is not None else zero_hand_features()
+            only_primary_hand = 1 if right_features is not None and left_features is None else 0
+
+            self.last_features = [only_primary_hand] + primary + secondary
+            self.last_left_features = left_features
+            self.last_right_features = right_features
+
+            if self._model is not None:
+                features = np.array(self.last_features, dtype=np.float32).reshape(1, -1)
+                probs = self._model.predict_proba(features)[0]
+                prediction_conf = float(np.max(probs))
+                if prediction_conf > 0.8:
+                    prediction_text = self._model.predict(features)[0]
+                else:
+                    prediction_text = "Uncertain"
+            else:
+                prediction_text = "No Model"
+
+        hands_detected = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
 
         self.last_status = {
             "hands_detected": hands_detected,
             "left_conf": left_conf,
             "right_conf": right_conf,
+            "prediction": prediction_text,
+            "prediction_conf": prediction_conf,
         }
 
         out_frame = dict(frame)
@@ -159,10 +193,12 @@ class HandTrackingWorker(QThread):
     status_updated = pyqtSignal(dict)
     frame_processed = pyqtSignal(object)
     fps_updated = pyqtSignal(float)
+    prediction_updated = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, flip_horizontal: bool = False):
         super().__init__()
         self._tracker = HandTracker()
+        self._flip_horizontal = bool(flip_horizontal)
         self._queue = deque(maxlen=1)
         self._lock = threading.Lock()
         self._event = threading.Event()
@@ -191,7 +227,7 @@ class HandTrackingWorker(QThread):
                 frame = self._queue.pop() if self._queue else None
             if frame is None:
                 continue
-            processed, status = self._tracker.process(frame)
+            processed, status = self._tracker.process(frame, flip_horizontal=self._flip_horizontal)
 
             now = time.perf_counter()
             if self._last_time is not None:
@@ -204,6 +240,9 @@ class HandTrackingWorker(QThread):
 
             if status is not None:
                 self.status_updated.emit(status)
+                prediction = status.get("prediction") if isinstance(status, dict) else None
+                if prediction is not None:
+                    self.prediction_updated.emit(str(prediction))
             if processed is not None:
                 self.frame_processed.emit(processed)
 
