@@ -2,9 +2,9 @@
   "caption_box_size": 110,
   "opacity_percent": 100,
   "show_raw_tokens": false,
-  "freeze_on_detection_loss": false,
+  "freeze_on_detection_loss": true,
   "enable_llm_smoothing": false,
   "model_selection": "Local Small",
   "show_latency": false,
-  "corner": "Bottom Left"
+  "corner": "Bottom Right"
 }

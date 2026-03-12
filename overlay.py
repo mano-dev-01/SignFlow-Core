@@ -1,4 +1,5 @@
 ﻿import json
+import random
 import os
 import sys
 import time
@@ -38,6 +39,7 @@ ENABLE_COLLAPSE_ANIMATION = True
 LABEL_DEFAULT_TEXT = "Captions Placeholder"
 FONT_FAMILY = "Segoe UI"
 SECONDARY_ACTION_INDICATOR_ACTIVE = False
+EXCLUDE_OVERLAY_FROM_CAPTURE = True
 
 # CAPTURE / PREVIEW
 CAPTURE_FPS = 30
@@ -51,6 +53,21 @@ HIGHLIGHT_DURATION_MS = 1000
 PREVIEW_WIDTH = 320
 PREVIEW_HEIGHT = 180
 PREVIEW_MARGIN = 24
+PREVIEW_TITLE_HEIGHT = 28
+PREVIEW_TITLE_BG = "rgba(18, 18, 20, 235)"
+PREVIEW_TITLE_TEXT = "rgba(255, 255, 255, 235)"
+PREVIEW_TITLE_SUBTEXT = "rgba(255, 255, 255, 200)"
+PREVIEW_REGION_BG = "rgba(0, 0, 0, 160)"
+PREVIEW_REGION_TEXT = "rgba(255, 255, 255, 220)"
+PREVIEW_HINT_TEXT = "rgba(255, 255, 255, 200)"
+STATUS_UPDATE_INTERVAL_MS = 500
+STATUS_PANEL_PADDING = 10
+STATUS_PANEL_BG = "rgba(20, 20, 22, 235)"
+STATUS_PANEL_BORDER = "rgba(255, 255, 255, 24)"
+STATUS_PANEL_TEXT = "rgba(255, 255, 255, 220)"
+STATUS_PANEL_TITLE = "rgba(255, 255, 255, 235)"
+STATUS_PANEL_FONT_SIZE = 12
+STATUS_PANEL_TITLE_SIZE = 13
 
 # OVERLAY WINDOW
 OVERLAY_WIDTH = 520
@@ -208,6 +225,24 @@ def stop_capture():
     pass
 
 
+def generate_fake_status(system_state: str):
+    hands = random.randint(0, 2)
+    left_conf = random.random() if hands >= 1 else 0.0
+    right_conf = random.random() if hands == 2 else 0.0
+    fps = random.randint(20, 30)
+    model_state = random.choice(["Idle", "Detecting Hands", "Processing Frame", "Waiting for Input"])
+    capture_state = "Active" if system_state == "Running" else ("Paused" if system_state == "Paused" else "Idle")
+    return {
+        "System": system_state,
+        "Capture Region": capture_state,
+        "Hands Detected": hands,
+        "Left Hand Confidence": left_conf,
+        "Right Hand Confidence": right_conf,
+        "Processing FPS": fps,
+        "Model State": model_state,
+    }
+
+
 def _frame_to_qimage(frame):
     if not isinstance(frame, dict):
         return None
@@ -228,7 +263,8 @@ def _set_window_excluded_from_capture(widget):
         import ctypes
 
         hwnd = int(widget.winId())
-        ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, 0x11)
+        affinity = 0x11 if EXCLUDE_OVERLAY_FROM_CAPTURE else 0x00
+        ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, affinity)
     except Exception:
         pass
 
@@ -914,19 +950,219 @@ class PreviewWindow(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground, False)
-        self.setFixedSize(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+
+        self._status_visible = False
+        self._capture_state = "IDLE"
+        self._region = None
+        self._show_first_hint = True
+        self._dragging = False
+        self._drag_offset = QPoint()
 
         QTimer.singleShot(0, lambda: _set_window_excluded_from_capture(self))
 
-        self.label = QLabel()
+        self.title_bar = QWidget()
+        self.title_bar.setObjectName("previewTitleBar")
+        self.title_bar.setFixedHeight(PREVIEW_TITLE_HEIGHT)
+
+        self.title_label = QLabel("SignFlow Capture")
+        self.title_label.setObjectName("previewTitle")
+
+        self.state_label = QLabel()
+        self.state_label.setObjectName("previewState")
+        self._apply_capture_state()
+
+        title_layout = QHBoxLayout(self.title_bar)
+        title_layout.setContentsMargins(10, 4, 10, 4)
+        title_layout.setSpacing(8)
+        title_layout.addWidget(self.title_label, 1)
+        title_layout.addWidget(self.state_label, 0, Qt.AlignRight)
+
+        self.preview_container = QFrame()
+        self.preview_container.setObjectName("previewContainer")
+        self.preview_container.setFixedSize(PREVIEW_WIDTH, PREVIEW_HEIGHT)
+
+        self.label = QLabel(self.preview_container)
         self.label.setAlignment(Qt.AlignCenter)
         self.label.setStyleSheet("background-color: rgba(0, 0, 0, 210); border: 1px solid rgba(255, 255, 255, 40);")
 
+        self.region_label = QLabel(self.preview_container)
+        self.region_label.setObjectName("previewRegion")
+        self.region_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.region_label.setVisible(False)
+
+        self.empty_label = QLabel("No capture region selected\nClick the capture button to begin", self.preview_container)
+        self.empty_label.setObjectName("previewEmpty")
+        self.empty_label.setAlignment(Qt.AlignCenter)
+
+        self.hint_label = QLabel("Click the capture button to select a signing video.", self.preview_container)
+        self.hint_label.setObjectName("previewHint")
+        self.hint_label.setAlignment(Qt.AlignCenter)
+
+        self.status_panel = QWidget()
+        self.status_panel.setVisible(False)
+        self.status_panel.setObjectName("statusPanel")
+
+        self.status_title = QLabel("Current Status")
+        self.status_title.setObjectName("statusTitle")
+
+        self.status_body = QLabel("")
+        self.status_body.setObjectName("statusBody")
+        self.status_body.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.status_body.setWordWrap(True)
+
+        status_layout = QVBoxLayout(self.status_panel)
+        status_layout.setContentsMargins(STATUS_PANEL_PADDING, STATUS_PANEL_PADDING, STATUS_PANEL_PADDING, STATUS_PANEL_PADDING)
+        status_layout.setSpacing(6)
+        status_layout.addWidget(self.status_title)
+        status_layout.addWidget(self.status_body)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self.label)
+        layout.setSpacing(0)
+        layout.addWidget(self.title_bar)
+        layout.addWidget(self.preview_container)
+        layout.addWidget(self.status_panel)
 
+        self.setStyleSheet(
+            f"""
+            QWidget#previewTitleBar {{
+                background-color: {PREVIEW_TITLE_BG};
+                border: 1px solid rgba(255, 255, 255, 24);
+                border-bottom: none;
+            }}
+            QLabel#previewTitle {{
+                color: {PREVIEW_TITLE_TEXT};
+                font: 600 12px '{FONT_FAMILY}';
+            }}
+            QLabel#previewState {{
+                color: {PREVIEW_TITLE_SUBTEXT};
+                font: 600 11px '{FONT_FAMILY}';
+            }}
+            QFrame#previewContainer {{
+                background-color: rgba(0, 0, 0, 210);
+                border-left: 1px solid rgba(255, 255, 255, 40);
+                border-right: 1px solid rgba(255, 255, 255, 40);
+                border-bottom: 1px solid rgba(255, 255, 255, 40);
+            }}
+            QLabel#previewRegion {{
+                color: {PREVIEW_REGION_TEXT};
+                background-color: {PREVIEW_REGION_BG};
+                border-radius: 6px;
+                padding: 2px 8px;
+                font: 600 11px '{FONT_FAMILY}';
+            }}
+            QLabel#previewEmpty {{
+                color: {PREVIEW_TITLE_TEXT};
+                font: 600 12px '{FONT_FAMILY}';
+            }}
+            QLabel#previewHint {{
+                color: {PREVIEW_HINT_TEXT};
+                font: 500 11px '{FONT_FAMILY}';
+            }}
+            QWidget#statusPanel {{
+                background-color: {STATUS_PANEL_BG};
+                border: 1px solid {STATUS_PANEL_BORDER};
+                border-top: none;
+            }}
+            QLabel#statusTitle {{
+                color: {STATUS_PANEL_TITLE};
+                font: 600 {STATUS_PANEL_TITLE_SIZE}px '{FONT_FAMILY}';
+            }}
+            QLabel#statusBody {{
+                color: {STATUS_PANEL_TEXT};
+                font: 500 {STATUS_PANEL_FONT_SIZE}px '{FONT_FAMILY}';
+            }}
+            """
+        )
+
+        self._update_empty_state()
+        self._layout_preview_overlays()
+        self._update_window_size()
         self._position_near_corner()
+
+    def _apply_capture_state(self):
+        state = self._capture_state
+        if state == "LIVE":
+            color = "rgb(80, 200, 120)"
+            text = "LIVE"
+        elif state == "PAUSED":
+            color = "rgb(240, 200, 80)"
+            text = "PAUSED"
+        else:
+            color = "rgb(145, 145, 145)"
+            text = "IDLE"
+        self.state_label.setText(f"<span style=\"color:{color};\">?</span> {text}")
+
+    def set_capture_state(self, state: str):
+        normalized = (state or "IDLE").upper()
+        if normalized == "RUNNING":
+            normalized = "LIVE"
+        elif normalized == "PAUSED":
+            normalized = "PAUSED"
+        else:
+            normalized = "IDLE"
+        if normalized != self._capture_state:
+            self._capture_state = normalized
+            self._apply_capture_state()
+
+    def set_region_info(self, region: dict | None, show_hint: bool):
+        self._region = region
+        self._show_first_hint = bool(show_hint)
+        if region:
+            width = int(region.get("width", 0))
+            height = int(region.get("height", 0))
+            if width > 0 and height > 0:
+                self.region_label.setText(f"Region: {width} ? {height}")
+                self.region_label.setVisible(True)
+            else:
+                self.region_label.setVisible(False)
+        else:
+            self.region_label.setVisible(False)
+        self._update_empty_state()
+        self._layout_preview_overlays()
+
+    def _update_empty_state(self):
+        has_region = bool(self._region)
+        self.empty_label.setVisible(not has_region)
+        self.hint_label.setVisible(not has_region and self._show_first_hint)
+
+    def _layout_preview_overlays(self):
+        self.label.setGeometry(0, 0, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+        margin = 10
+        if self.region_label.isVisible():
+            self.region_label.adjustSize()
+            w = self.region_label.width()
+            h = self.region_label.height()
+            self.region_label.move(PREVIEW_WIDTH - w - margin, margin)
+        if self.empty_label.isVisible():
+            self.empty_label.adjustSize()
+            hint_space = 0
+            if self.hint_label.isVisible():
+                self.hint_label.adjustSize()
+                hint_space = self.hint_label.height() + 6
+            total_height = self.empty_label.height() + hint_space
+            y = int((PREVIEW_HEIGHT - total_height) / 2)
+            self.empty_label.move(int((PREVIEW_WIDTH - self.empty_label.width()) / 2), y)
+            if self.hint_label.isVisible():
+                self.hint_label.move(int((PREVIEW_WIDTH - self.hint_label.width()) / 2), y + self.empty_label.height() + 6)
+
+    def _update_window_size(self):
+        height = PREVIEW_TITLE_HEIGHT + PREVIEW_HEIGHT
+        if self._status_visible:
+            self.status_panel.adjustSize()
+            status_height = self.status_panel.sizeHint().height()
+            height += status_height
+        self.setFixedSize(PREVIEW_WIDTH, height)
+
+    def set_status_visible(self, visible: bool):
+        self._status_visible = bool(visible)
+        self.status_panel.setVisible(self._status_visible)
+        self._update_window_size()
+
+    def set_status_text(self, text: str):
+        self.status_body.setText(text or "")
+        if self._status_visible:
+            self._update_window_size()
 
     def _position_near_corner(self):
         screen = QGuiApplication.primaryScreen()
@@ -941,6 +1177,32 @@ class PreviewWindow(QWidget):
         super().showEvent(event)
         self._position_near_corner()
         _set_window_excluded_from_capture(self)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_preview_overlays()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._drag_offset = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._dragging and event.buttons() & Qt.LeftButton:
+            self.move(event.globalPos() - self._drag_offset)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = False
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def update_frame(self, image: QImage):
         if image is None:
@@ -1014,8 +1276,12 @@ class OverlayWindow(QWidget):
         self.capture_state = {"region": None, "paused": False}
         self.capture_thread = None
         self.preview_window = None
+        self.first_launch_hint = True
         self.selection_overlay = None
         self.highlight_overlay = None
+        self.status_timer = QTimer(self)
+        self.status_timer.setInterval(STATUS_UPDATE_INTERVAL_MS)
+        self.status_timer.timeout.connect(self._update_status_panel)
 
         global FRAME_DISPATCHER
         FRAME_DISPATCHER = self._handle_frame
@@ -1082,6 +1348,7 @@ class OverlayWindow(QWidget):
         self.secondary_panel.model_combo.currentTextChanged.connect(self.on_model_changed)
         self.secondary_panel.show_latency_checkbox.toggled.connect(self.on_show_latency_toggled)
         self.secondary_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
+        self.secondary_panel.freeze_on_loss_checkbox.toggled.connect(self.on_show_model_status_toggled)
         self.secondary_panel.restart_button.clicked.connect(self.on_restart_requested)
         self.secondary_panel.reset_preferences_button.clicked.connect(self.on_reset_preferences_requested)
         self.secondary_panel.crop_clicked.connect(self.on_crop_clicked)
@@ -1230,6 +1497,43 @@ class OverlayWindow(QWidget):
         self._refresh_window_geometry(reposition=True)
         self._write_preferences()
 
+    def on_show_model_status_toggled(self, checked: bool):
+        if self.preview_window is None:
+            return
+        self.preview_window.set_status_visible(checked)
+        if checked:
+            self._update_status_panel()
+            self.status_timer.start()
+        else:
+            self.status_timer.stop()
+
+    def _current_system_state(self):
+        if not self.capture_state or not self.capture_state.get("region"):
+            return "Idle"
+        if self.capture_state.get("paused"):
+            return "Paused"
+        return "Running"
+
+    def _update_status_panel(self):
+        if self.preview_window is None or not self.preview_window._status_visible:
+            return
+        status = generate_fake_status(self._current_system_state())
+        state = self._current_system_state()
+        capture_line = "ACTIVE" if state == "Running" else ("PAUSED" if state == "Paused" else "IDLE")
+        lines = [
+            "Current Status",
+            "--------------",
+            f"System: {status['System']}",
+            f"Capture: {capture_line}",
+            f"Capture Region: {status['Capture Region']}",
+            f"Hands Detected: {status['Hands Detected']}",
+            f"Left Hand Confidence: {status['Left Hand Confidence']:.2f}",
+            f"Right Hand Confidence: {status['Right Hand Confidence']:.2f}",
+            f"Processing FPS: {status['Processing FPS']}",
+            f"Model State: {status['Model State']}",
+        ]
+        self.preview_window.set_status_text("\n".join(lines))
+
     def on_restart_requested(self):
         self._write_preferences()
         restart_current_process()
@@ -1289,6 +1593,9 @@ class OverlayWindow(QWidget):
             },
             "paused": False,
         }
+        self.first_launch_hint = False
+        if self.preview_window is not None:
+            self.preview_window.set_region_info(self.capture_state.get("region"), self.first_launch_hint)
 
     def _start_capture(self):
         if not self.capture_state or not self.capture_state.get("region"):
@@ -1298,6 +1605,9 @@ class OverlayWindow(QWidget):
         self.secondary_panel.set_playing(True)
         self.secondary_panel.set_status_active(True)
         self._ensure_preview_window()
+        if self.preview_window is not None:
+            self.preview_window.set_capture_state("LIVE")
+            self.preview_window.set_region_info(self.capture_state.get("region"), self.first_launch_hint)
         self.capture_thread = ScreenCaptureThread(self.capture_state["region"])
         self.capture_thread.frame_captured.connect(self._on_frame_captured)
         self.capture_thread.start()
@@ -1311,6 +1621,12 @@ class OverlayWindow(QWidget):
     def _ensure_preview_window(self):
         if self.preview_window is None:
             self.preview_window = PreviewWindow()
+        self.preview_window.set_status_visible(self.secondary_panel.freeze_on_loss_checkbox.isChecked())
+        self.preview_window.set_capture_state(self._current_system_state())
+        self.preview_window.set_region_info(self.capture_state.get("region"), self.first_launch_hint)
+        if self.preview_window._status_visible:
+            self._update_status_panel()
+            self.status_timer.start()
         self.preview_window.show()
         self.preview_window.raise_()
 
@@ -1337,9 +1653,15 @@ class OverlayWindow(QWidget):
         else:
             self.capture_state["paused"] = not _is_playing
         self.secondary_panel.set_status_active(bool(_is_playing))
+        if self.preview_window is not None:
+            self.preview_window.set_capture_state("LIVE" if _is_playing else "PAUSED")
 
     def on_clear_clicked(self):
         self.secondary_panel.set_status_active(False)
+        self.capture_state = {"region": None, "paused": False}
+        if self.preview_window is not None:
+            self.preview_window.set_capture_state("IDLE")
+            self.preview_window.set_region_info(None, self.first_launch_hint)
         stop_capture()
 
     def on_reset_preferences_requested(self):
