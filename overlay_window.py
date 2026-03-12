@@ -1,3 +1,5 @@
+import time
+
 from PyQt5.QtCore import (
     QAbstractAnimation,
     QEasingCurve,
@@ -12,6 +14,7 @@ from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
 from overlay_capture import ScreenCaptureThread
 from overlay_constants import (
     ANIMATION_DURATION_MS,
+    CAPTURE_FPS,
     CORNER_BOTTOM_LEFT,
     CORNER_BOTTOM_RIGHT,
     CORNER_TOP_LEFT,
@@ -34,6 +37,7 @@ from overlay_constants import (
     SECONDARY_EXPANDED_HEIGHT,
     STATUS_UPDATE_INTERVAL_MS,
 )
+from overlay_hand_tracking import HandTrackingWorker
 from overlay_panels import PrimaryPanel, SecondaryPanel
 from overlay_preferences import _read_json, _sanitize_settings, save_user_preferences
 from overlay_preview import PreviewWindow
@@ -41,7 +45,6 @@ from overlay_selection import HighlightOverlay, RegionSelectionOverlay
 from overlay_utils import (
     _frame_to_qimage,
     _set_window_excluded_from_capture,
-    generate_fake_status,
     process_frame,
     restart_current_process,
     set_frame_dispatcher,
@@ -78,6 +81,16 @@ class OverlayWindow(QWidget):
         self.status_timer = QTimer(self)
         self.status_timer.setInterval(STATUS_UPDATE_INTERVAL_MS)
         self.status_timer.timeout.connect(self._update_status_panel)
+        self.hand_worker = None
+        self.last_detection = {"hands_detected": 0, "left_conf": 0.0, "right_conf": 0.0}
+        self._processing_fps = 0.0
+        self._latest_frame = None
+        self._latest_processed_frame = None
+        self._latest_frame_time = None
+        self._latest_processed_time = None
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setInterval(max(1, int(1000 / max(1, CAPTURE_FPS))))
+        self._preview_timer.timeout.connect(self._update_preview_frame)
 
         set_frame_dispatcher(self._handle_frame)
 
@@ -312,20 +325,21 @@ class OverlayWindow(QWidget):
     def _update_status_panel(self):
         if self.preview_window is None or not self.preview_window._status_visible:
             return
-        status = generate_fake_status(self._current_system_state())
         state = self._current_system_state()
         capture_line = "ACTIVE" if state == "Running" else ("PAUSED" if state == "Paused" else "IDLE")
+        hands = int(self.last_detection.get("hands_detected", 0) or 0)
+        left_conf = float(self.last_detection.get("left_conf", 0.0) or 0.0)
+        right_conf = float(self.last_detection.get("right_conf", 0.0) or 0.0)
+        hand_state = "Detected" if hands > 0 else "No Hands"
+        fps_value = self._processing_fps
         lines = [
-            "Current Status",
-            "--------------",
-            f"System: {status['System']}",
+            f"System: {state}",
             f"Capture: {capture_line}",
-            f"Capture Region: {status['Capture Region']}",
-            f"Hands Detected: {status['Hands Detected']}",
-            f"Left Hand Confidence: {status['Left Hand Confidence']:.2f}",
-            f"Right Hand Confidence: {status['Right Hand Confidence']:.2f}",
-            f"Processing FPS: {status['Processing FPS']}",
-            f"Model State: {status['Model State']}",
+            f"Hand Detection: {hand_state}",
+            f"Hands Detected: {hands}",
+            f"Left Hand Confidence: {left_conf:.2f}",
+            f"Right Hand Confidence: {right_conf:.2f}",
+            f"Processing FPS: {fps_value:.1f}",
         ]
         self.preview_window.set_status_text("\n".join(lines))
 
@@ -406,12 +420,23 @@ class OverlayWindow(QWidget):
         self.capture_thread = ScreenCaptureThread(self.capture_state["region"])
         self.capture_thread.frame_captured.connect(self._on_frame_captured)
         self.capture_thread.start()
+        if not self._preview_timer.isActive():
+            self._preview_timer.start()
+
+        if self.hand_worker is None:
+            self.hand_worker = HandTrackingWorker()
+            self.hand_worker.status_updated.connect(self._on_detection_status)
+            self.hand_worker.frame_processed.connect(self._on_processed_frame)
+            self.hand_worker.fps_updated.connect(self._on_processing_fps)
+            self.hand_worker.start()
 
     def _stop_capture_thread(self):
         if self.capture_thread is None:
             return
         self.capture_thread.stop()
         self.capture_thread = None
+        if self._preview_timer.isActive():
+            self._preview_timer.stop()
 
     def _ensure_preview_window(self):
         if self.preview_window is None:
@@ -431,8 +456,37 @@ class OverlayWindow(QWidget):
     def _handle_frame(self, frame):
         if not self.capture_state or self.capture_state.get("paused"):
             return
+        self._latest_frame = frame
+        self._latest_frame_time = time.perf_counter()
+        if self.hand_worker is not None:
+            self.hand_worker.submit(frame)
+
+    def _on_processed_frame(self, frame):
+        self._latest_processed_frame = frame
+        self._latest_processed_time = time.perf_counter()
+
+    def _on_detection_status(self, status: dict):
+        if status:
+            self.last_detection = status
+
+    def _on_processing_fps(self, fps: float):
+        self._processing_fps = float(fps or 0.0)
+
+    def _update_preview_frame(self):
         if self.preview_window is None:
             return
+        if not self.capture_state or self.capture_state.get("paused"):
+            return
+
+        frame = None
+        now = time.perf_counter()
+        if self._latest_processed_frame is not None and self._latest_processed_time is not None:
+            if now - self._latest_processed_time < 0.35:
+                frame = self._latest_processed_frame
+
+        if frame is None:
+            frame = self._latest_frame
+
         image = _frame_to_qimage(frame)
         if image is None:
             return
@@ -484,6 +538,9 @@ class OverlayWindow(QWidget):
         if self.highlight_overlay is not None:
             self.highlight_overlay.close()
             self.highlight_overlay = None
+        if self.hand_worker is not None:
+            self.hand_worker.stop()
+            self.hand_worker = None
         set_frame_dispatcher(None)
         super().closeEvent(event)
 
