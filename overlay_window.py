@@ -85,10 +85,12 @@ class OverlayWindow(QWidget):
         self.hand_worker = None
         self.last_detection = {"hands_detected": 0, "left_conf": 0.0, "right_conf": 0.0}
         self._processing_fps = 0.0
+        self._capture_fps = 0.0
         self._latest_frame = None
         self._latest_processed_frame = None
         self._latest_frame_time = None
         self._latest_processed_time = None
+        self._capture_frame_time = None
         self._last_prediction = None
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(max(1, int(1000 / max(1, CAPTURE_FPS))))
@@ -334,6 +336,17 @@ class OverlayWindow(QWidget):
         right_conf = float(self.last_detection.get("right_conf", 0.0) or 0.0)
         prediction = self.last_detection.get("prediction", "")
         prediction_conf = float(self.last_detection.get("prediction_conf", 0.0) or 0.0)
+        input_w = int(self.last_detection.get("input_w", 0) or 0)
+        input_h = int(self.last_detection.get("input_h", 0) or 0)
+        det_w = int(self.last_detection.get("det_w", 0) or 0)
+        det_h = int(self.last_detection.get("det_h", 0) or 0)
+        det_scale = float(self.last_detection.get("det_scale", 1.0) or 1.0)
+        pad_x = int(self.last_detection.get("pad_x", 0) or 0)
+        pad_y = int(self.last_detection.get("pad_y", 0) or 0)
+        flip_on = bool(self.last_detection.get("flip", False))
+        model_loaded = bool(self.last_detection.get("model_loaded", False))
+        hand_label = self.last_detection.get("hand_label", "Unknown")
+        processing_ms = float(self.last_detection.get("processing_ms", 0.0) or 0.0)
         hand_state = "Detected" if hands > 0 else "No Hands"
         fps_value = self._processing_fps
         lines = [
@@ -346,6 +359,15 @@ class OverlayWindow(QWidget):
             f"Prediction: {prediction}",
             f"Prediction Confidence: {prediction_conf:.2f}",
             f"Processing FPS: {fps_value:.1f}",
+            f"Capture FPS: {self._capture_fps:.1f}",
+            f"Input Size: {input_w}x{input_h}",
+            f"Detect Size: {det_w}x{det_h}",
+            f"Scale: {det_scale:.3f}",
+            f"Pad: {pad_x},{pad_y}",
+            f"Flip: {'On' if flip_on else 'Off'}",
+            f"Model: {'Loaded' if model_loaded else 'Missing'}",
+            f"Handedness: {hand_label}",
+            f"Process Time: {processing_ms:.1f} ms",
         ]
         self.preview_window.set_status_text("\n".join(lines))
 
@@ -366,6 +388,8 @@ class OverlayWindow(QWidget):
 
     def _on_region_selected(self, rect: QRect):
         if self.selection_overlay is not None:
+            offset = self.selection_overlay.geometry().topLeft()
+            rect = rect.translated(offset)
             self.selection_overlay.close()
             self.selection_overlay = None
         normalized = rect.normalized()
@@ -399,6 +423,7 @@ class OverlayWindow(QWidget):
         self._start_capture()
 
     def _set_capture_state_from_rect(self, rect: QRect):
+        rect = self._rect_to_physical(rect)
         self.capture_state = {
             "region": {
                 "x": int(rect.x()),
@@ -411,6 +436,22 @@ class OverlayWindow(QWidget):
         self.first_launch_hint = False
         if self.preview_window is not None:
             self.preview_window.set_region_info(self.capture_state.get("region"), self.first_launch_hint)
+
+    def _rect_to_physical(self, rect: QRect):
+        screen = QGuiApplication.screenAt(rect.center())
+        if screen is None:
+            screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return rect
+        scale = screen.devicePixelRatio()
+        if scale <= 0:
+            return rect
+        return QRect(
+            int(rect.x() * scale),
+            int(rect.y() * scale),
+            max(1, int(rect.width() * scale)),
+            max(1, int(rect.height() * scale)),
+        )
 
     def _start_capture(self):
         if not self.capture_state or not self.capture_state.get("region"):
@@ -463,8 +504,15 @@ class OverlayWindow(QWidget):
     def _handle_frame(self, frame):
         if not self.capture_state:
             return
+        now = time.perf_counter()
+        if self._capture_frame_time is not None:
+            delta = now - self._capture_frame_time
+            if delta > 1e-6:
+                instant = 1.0 / delta
+                self._capture_fps = (self._capture_fps * 0.85) + (instant * 0.15)
+        self._capture_frame_time = now
         self._latest_frame = frame
-        self._latest_frame_time = time.perf_counter()
+        self._latest_frame_time = now
         if self.hand_worker is not None:
             self.hand_worker.submit(frame)
 

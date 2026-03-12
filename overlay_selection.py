@@ -119,9 +119,8 @@ class RegionSelectionOverlay(QWidget):
             suffix_text = ""
 
         base_font = QFont(FONT_FAMILY, SELECTION_TEXT_FONT_SIZE)
-        base_font.setWeight(QFont.DemiBold)
-        suffix_size = max(10, int(SELECTION_TEXT_FONT_SIZE * 0.88))
-        suffix_font = QFont(FONT_FAMILY, suffix_size)
+        base_font.setWeight(QFont.Medium)
+        suffix_font = QFont(FONT_FAMILY, SELECTION_TEXT_FONT_SIZE)
         suffix_font.setWeight(QFont.Medium)
 
         base_metrics = QFontMetrics(base_font)
