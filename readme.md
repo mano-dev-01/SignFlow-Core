@@ -66,11 +66,7 @@ Python version: `3.10`
 `pip install -r requirements.txt`
 
 4. Run  
-`run_signflow.bat`
-
-Manual run (two terminals):
-- Terminal 1: `python overlay.py`
-- Terminal 2: `python realtime_sender.py`
+`python overlay.py`
 
 ## Notes
 

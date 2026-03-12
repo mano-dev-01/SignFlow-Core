@@ -146,9 +146,9 @@ class OverlayWindow(QWidget):
         self.secondary_panel.freeze_on_loss_checkbox.toggled.connect(self.on_show_model_status_toggled)
         self.secondary_panel.restart_button.clicked.connect(self.on_restart_requested)
         self.secondary_panel.reset_preferences_button.clicked.connect(self.on_reset_preferences_requested)
-        self.secondary_panel.crop_clicked.connect(self.on_crop_clicked)
+        self.secondary_panel.crop_clicked.connect(self.on_fullscreen_capture)
         self.secondary_panel.play_pause_toggled.connect(self.on_play_pause_toggled)
-        self.secondary_panel.clear_clicked.connect(self.on_clear_clicked)
+        self.secondary_panel.clear_clicked.connect(self.on_crop_clicked)
 
     def _rebuild_stack(self):
         while self.root_layout.count():
@@ -441,6 +441,14 @@ class OverlayWindow(QWidget):
     def on_crop_clicked(self):
         self.hide()
         QTimer.singleShot(50, self._start_region_selection)
+
+    def on_fullscreen_capture(self):
+        screen = QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        rect = screen.geometry()
+        self._set_capture_state_from_rect(rect)
+        self._start_capture()
 
     def on_play_pause_toggled(self, _is_playing: bool):
         if self.capture_state is None:

@@ -109,13 +109,27 @@ class RegionSelectionOverlay(QWidget):
         else:
             painter.fillRect(full_rect, dim_color)
 
-        font = QFont(FONT_FAMILY, SELECTION_TEXT_FONT_SIZE)
-        font.setWeight(QFont.DemiBold)
-        painter.setFont(font)
-        metrics = QFontMetrics(font)
         text = SELECTION_INSTRUCTION_TEXT
-        text_width = metrics.horizontalAdvance(text)
-        text_height = metrics.height()
+        suffix = " Press ENTER or SPACE to confirm."
+        if text.endswith(suffix):
+            base_text = text[: -len(suffix)]
+            suffix_text = suffix
+        else:
+            base_text = text
+            suffix_text = ""
+
+        base_font = QFont(FONT_FAMILY, SELECTION_TEXT_FONT_SIZE)
+        base_font.setWeight(QFont.DemiBold)
+        suffix_size = max(10, int(SELECTION_TEXT_FONT_SIZE * 0.88))
+        suffix_font = QFont(FONT_FAMILY, suffix_size)
+        suffix_font.setWeight(QFont.Medium)
+
+        base_metrics = QFontMetrics(base_font)
+        suffix_metrics = QFontMetrics(suffix_font)
+        base_width = base_metrics.horizontalAdvance(base_text)
+        suffix_width = suffix_metrics.horizontalAdvance(suffix_text)
+        text_width = base_width + suffix_width
+        text_height = max(base_metrics.height(), suffix_metrics.height())
 
         padding_h = 18
         padding_v = 8
@@ -140,7 +154,13 @@ class RegionSelectionOverlay(QWidget):
 
         text_rect = QRectF(label_rect)
         painter.setPen(QColor(255, 255, 255, 235))
-        painter.drawText(text_rect, Qt.AlignCenter, text)
+        baseline = label_rect.top() + (label_height + base_metrics.ascent() - base_metrics.descent()) / 2.0
+        start_x = label_rect.left() + (label_width - text_width) / 2.0
+        painter.setFont(base_font)
+        painter.drawText(QPoint(int(start_x), int(baseline)), base_text)
+        if suffix_text:
+            painter.setFont(suffix_font)
+            painter.drawText(QPoint(int(start_x + base_width), int(baseline)), suffix_text)
 
 
 class HighlightOverlay(QWidget):

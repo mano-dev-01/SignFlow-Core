@@ -271,7 +271,7 @@ class SecondaryPanel(QFrame):
 
         self._set_action_icon_sizes()
         self.crop_button.setIcon(self._build_crop_icon(SECONDARY_ACTION_ICON_SIZE))
-        self.clear_button.setIcon(self._build_clear_icon(SECONDARY_ACTION_ICON_SIZE))
+        self.clear_button.setIcon(self._build_region_icon(SECONDARY_ACTION_ICON_SIZE))
         self._apply_play_pause_icon()
 
         self._status_active = False
@@ -508,6 +508,34 @@ class SecondaryPanel(QFrame):
         painter.drawRect(m, m, size - (m * 2), size - (m * 2))
         painter.drawLine(m, size // 3, m, m)
         painter.drawLine(size // 3, m, m, m)
+        painter.end()
+        return QIcon(pix)
+
+    def _build_region_icon(self, size: int):
+        pix = self._new_icon_canvas(size)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(QColor(245, 245, 245, 235), 1.6)
+        pen.setCapStyle(Qt.SquareCap)
+        painter.setPen(pen)
+
+        s = float(size)
+        pad = int(s * 0.18)
+        x1 = int(s * 0.40)
+        x2 = int(s * 0.60)
+        y1 = int(s * 0.40)
+        y2 = int(s * 0.60)
+        left = pad
+        right = int(s - pad)
+        top = pad
+        bottom = int(s - pad)
+
+        # 3x3 tic-tac-toe grid
+        painter.drawLine(x1, top, x1, bottom)
+        painter.drawLine(x2, top, x2, bottom)
+        painter.drawLine(left, y1, right, y1)
+        painter.drawLine(left, y2, right, y2)
+
         painter.end()
         return QIcon(pix)
 
