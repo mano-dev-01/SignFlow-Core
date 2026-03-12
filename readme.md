@@ -1,41 +1,57 @@
 # SignFlow
 
-SignFlow is a real-time sign language to English captioning project, built around a live desktop overlay experience for calls, streams, and demos.
+SignFlow is a Windows-first overlay app for capturing a screen region that contains a signing feed and previewing it live. It is designed to sit on top of calls/streams while collecting frames for a future ML pipeline.
 
 Python version: `3.10`
 
-## Current Status
+## What It Does Now
 
-The project currently has a working Windows overlay application and sender-side scaffolding.
+- Always-on-top overlay window with controls
+- Snipping-style region selection with dimmed screen + outline
+- Live capture of the selected region (mss + QThread)
+- Floating mini-player preview with status title and region label
+- Toggleable �Current Status� panel with simulated system data
+- Pause/resume preview updates (capture thread keeps running)
+- Persistent user preferences
 
-What is implemented now:
-- Stable PyQt5 overlay window (`overlay.py`) for live caption display
-- Always-on-top, frameless overlay UX designed for in-call usage
-- Configurable settings panel with persistent user preferences
-- Restart-safe settings flow for layout-sensitive controls
-- Companion sender entrypoint (`realtime_sender.py`) for pipeline-side integration
+## What It Does Not Do Yet
 
-What is not complete yet:
-- End-to-end production inference pipeline integration
-- Finalized smoothing/post-processing logic
-- Full system validation across varied real-world signing conditions
+- End-to-end sign recognition / inference pipeline
+- Production-grade smoothing / token post-processing
+- Full validation on diverse real-world signing conditions
 
-## Near-Term Roadmap
+## Runtime Flow (High Level)
 
-Planned next steps:
-- Connect overlay to finalized real-time recognition outputs
-- Improve temporal stability and caption quality during fast signing
-- Add robust latency and drop-handling behavior in live sessions
-- Expand evaluation and benchmarking on representative datasets
-- Harden packaging and startup flow for hackathon/demo deployment
+1. Launch overlay
+2. Click Capture Region
+3. Select area, confirm with Enter/Space
+4. Overlay returns, region highlights briefly
+5. Capture thread streams frames
+6. Mini-player shows live preview
+7. Optional: show/hide status panel
 
 ## Project Structure
 
-- `overlay.py`: Windows desktop overlay UI (PyQt5)
-- `realtime_sender.py`: runtime sender/bridge script
-- `default_settings.json`: baseline overlay settings
-- `user_preferences.json`: persisted per-user settings
-- `run_signflow.bat`: Windows run helper
+- Entry point
+  - `overlay.py`
+- Overlay UI + state
+  - `overlay_window.py`
+  - `overlay_panels.py`
+- Capture + preview
+  - `overlay_capture.py`
+  - `overlay_selection.py`
+  - `overlay_preview.py`
+- Shared support
+  - `overlay_constants.py`
+  - `overlay_preferences.py`
+  - `overlay_utils.py`
+- Sender scaffold
+  - `realtime_sender.py`
+- Settings
+  - `default_settings.json`
+  - `user_preferences.json`
+- Run helper
+  - `run_signflow.bat`
 
 ## Setup (Windows)
 
@@ -56,6 +72,8 @@ Manual run (two terminals):
 - Terminal 1: `python overlay.py`
 - Terminal 2: `python realtime_sender.py`
 
-## Notes on Linux
+## Notes
 
-Linux setup commands can work for non-UI components, but the current overlay target is Windows-first.
+- Overlay and mini-player are always-on-top by design.
+- The status panel is placeholder data and will be replaced by the ML pipeline later.
+- Windows is the primary target for the overlay UI.
