@@ -7,6 +7,8 @@ from pathlib import Path
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
 
+from overlay_constants import SIGN_PREDICTION_MIN_CONFIDENCE
+
 try:
     import joblib
 except Exception:  # pragma: no cover - allow runtime without joblib
@@ -241,7 +243,7 @@ class HandTracker:
                 features = np.array(self.last_features, dtype=np.float32).reshape(1, -1)
                 probs = self._model.predict_proba(features)[0]
                 prediction_conf = float(np.max(probs))
-                if prediction_conf > 0.8:
+                if prediction_conf >= SIGN_PREDICTION_MIN_CONFIDENCE:
                     prediction_text = self._model.predict(features)[0]
                 else:
                     prediction_text = "Uncertain"
