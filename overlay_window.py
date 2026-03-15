@@ -64,11 +64,12 @@ class OverlayWindow(QWidget):
         self.caption_text = LABEL_DEFAULT_TEXT
         self._caption_mode = "init"
         self._has_prediction = False
+        self._caption_history_text = ""
+        self._last_caption_display = ""
         self.caption_font_size = self.preferences["caption_font_size"]
         self.applied_caption_box_size = self.preferences["caption_box_size"]
         self.pending_caption_box_size = self.preferences["caption_box_size"]
         self.overlay_opacity = self.preferences["opacity_percent"] / 100.0
-        self.caption_lock_mode = self.preferences["caption_lock_mode"]
         self.freeze_on_detection_loss = self.preferences["freeze_on_detection_loss"]
         self.enable_llm_smoothing = self.preferences["enable_llm_smoothing"]
         self.corner = self.preferences["corner"]
@@ -165,7 +166,6 @@ class OverlayWindow(QWidget):
         self.preferences["caption_box_size"] = self.pending_caption_box_size
         self.preferences["caption_font_size"] = self.caption_font_size
         self.preferences["opacity_percent"] = int(round(self.overlay_opacity * 100))
-        self.preferences["caption_lock_mode"] = self.caption_lock_mode
         self.preferences["freeze_on_detection_loss"] = self.freeze_on_detection_loss
         self.preferences["enable_llm_smoothing"] = self.enable_llm_smoothing
         self.preferences["corner"] = self.corner
@@ -187,7 +187,6 @@ class OverlayWindow(QWidget):
         self.advanced_panel.caption_font_size_slider.valueChanged.connect(self.on_caption_font_size_changed)
         self.advanced_panel.opacity_slider.valueChanged.connect(self.on_opacity_changed)
         self.advanced_panel.disable_llm_checkbox.toggled.connect(self.on_disable_llm_toggled)
-        self.advanced_panel.caption_lock_checkbox.toggled.connect(self.on_caption_lock_toggled)
         self.advanced_panel.show_miniplayer_checkbox.toggled.connect(self.on_show_miniplayer_toggled)
         self.advanced_panel.show_model_status_checkbox.toggled.connect(self.on_freeze_on_loss_toggled)
         self.advanced_panel.show_model_status_checkbox.toggled.connect(self.on_show_model_status_toggled)
@@ -316,14 +315,18 @@ class OverlayWindow(QWidget):
         self._caption_mode = "caption"
         self.primary_panel.set_caption_mode("caption")
 
+    def _should_show_captions(self) -> bool:
+        if self.debug_captions:
+            return bool(self._has_prediction)
+        return bool(self.capture_state and self.capture_state.get("region") and self._has_prediction)
+
 
     def apply_state_to_ui(self):
-        if self.capture_state and self.capture_state.get("region"):
-            if self._has_prediction:
-                self._set_caption_mode()
-                self.primary_panel.set_caption_text(self.caption_text)
-            else:
-                self._set_init_mode("model initializing...")
+        if self._should_show_captions():
+            self._set_caption_mode()
+            self.primary_panel.set_caption_text(self.caption_text)
+        elif self.capture_state and self.capture_state.get("region"):
+            self._set_init_mode("model initializing...")
         else:
             self._set_init_mode("select a region or press play")
         self.primary_panel.set_caption_font_size(self.caption_font_size)
@@ -334,7 +337,6 @@ class OverlayWindow(QWidget):
         self.advanced_panel.caption_font_size_slider.setValue(self.caption_font_size)
         self.advanced_panel.opacity_slider.setValue(int(round(self.overlay_opacity * 100)))
         self.advanced_panel.disable_llm_checkbox.setChecked(not self.enable_llm_smoothing)
-        self.advanced_panel.caption_lock_checkbox.setChecked(self.caption_lock_mode)
         self.advanced_panel.show_miniplayer_checkbox.setChecked(self.show_miniplayer)
         self.advanced_panel.show_model_status_checkbox.setChecked(self.freeze_on_detection_loss)
         self.advanced_panel.flip_input_checkbox.setChecked(self.flip_input)
@@ -393,10 +395,6 @@ class OverlayWindow(QWidget):
         self.enable_llm_smoothing = not checked
         if self.caption_logger is not None:
             self.caption_logger.update_llm_smoothing(self.enable_llm_smoothing)
-        self._write_preferences()
-
-    def on_caption_lock_toggled(self, checked: bool):
-        self.caption_lock_mode = bool(checked)
         self._write_preferences()
 
     def on_show_miniplayer_toggled(self, checked: bool):
@@ -707,12 +705,12 @@ class OverlayWindow(QWidget):
         clean = (text or "").strip()
         if not clean:
             return
-        if clean == self._last_prediction and not self.caption_lock_mode:
+        if clean == self._last_prediction:
             return
         self._last_prediction = clean
         self._has_prediction = True
         self._set_caption_mode()
-        self.set_caption_text(clean, append=self.caption_lock_mode)
+        self.set_caption_text(clean)
         if self.caption_logger is not None:
             latency_ms = float(self.last_detection.get("processing_ms", 0.0) or 0.0)
             self.caption_logger.log_event(
@@ -809,27 +807,34 @@ class OverlayWindow(QWidget):
             self.hand_worker.stop()
             self.hand_worker = None
         if self.caption_logger is not None:
-            self.caption_logger.set_final_caption(self.caption_text)
+            self.caption_logger.set_final_caption(self._caption_history_text)
             self.caption_logger.stop()
             self.caption_logger = None
         set_frame_dispatcher(None)
         super().closeEvent(event)
 
-    def set_caption_text(self, text: str, append: bool = False):
-        if append and self.caption_lock_mode:
-            base = "" if self.caption_text == LABEL_DEFAULT_TEXT else self.caption_text
-            combined = f"{base} {text}".strip()
-            self.caption_text = combined or LABEL_DEFAULT_TEXT
-        else:
-            self.caption_text = text or LABEL_DEFAULT_TEXT
-        if self.capture_state and self.capture_state.get("region"):
-            if self._has_prediction:
-                self._set_caption_mode()
-                self.primary_panel.set_caption_text(self.caption_text)
+    def set_caption_text(self, text: str):
+        self.caption_text = text or LABEL_DEFAULT_TEXT
+        if self._should_show_captions():
+            self._set_caption_mode()
+            self.primary_panel.set_caption_text(self.caption_text)
+            if self._last_caption_display and self.caption_text.startswith(self._last_caption_display):
+                delta = self.caption_text[len(self._last_caption_display):]
+                if delta:
+                    self._caption_history_text += delta
             else:
-                self._set_init_mode("model initializing...")
+                if self._caption_history_text and not self._caption_history_text.endswith("\n"):
+                    self._caption_history_text += "\n"
+                self._caption_history_text += self.caption_text
+            self._last_caption_display = self.caption_text
+            if self.caption_logger is not None:
+                self.caption_logger.set_final_caption(self._caption_history_text)
+        elif self.capture_state and self.capture_state.get("region"):
+            self._set_init_mode("model initializing...")
+            self._last_caption_display = ""
         else:
             self._set_init_mode("select a region or press play")
+            self._last_caption_display = ""
         self._refresh_window_geometry(reposition=True)
 
     def toggle_secondary_panel(self):

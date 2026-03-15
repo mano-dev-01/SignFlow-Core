@@ -92,8 +92,11 @@ class CaptionLogger:
         self._event.set()
 
     def set_final_caption(self, text: str | None):
+        new_text = text or ""
         with self._lock:
-            self._payload["final_caption_text"] = text or ""
+            if self._payload.get("final_caption_text") == new_text:
+                return
+            self._payload["final_caption_text"] = new_text
         self._event.set()
 
     def stop(self):

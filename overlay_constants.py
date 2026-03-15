@@ -107,7 +107,6 @@ DEFAULT_SETTINGS = {
     "caption_box_size": DEFAULT_PRIMARY_BOX_SIZE,
     "caption_font_size": DEFAULT_FONT_SIZE,
     "opacity_percent": int(DEFAULT_OPACITY * 100),
-    "caption_lock_mode": False,
     "freeze_on_detection_loss": False,
     "enable_llm_smoothing": False,
     "corner": DEFAULT_CORNER,
