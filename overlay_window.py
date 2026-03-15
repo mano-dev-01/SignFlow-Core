@@ -56,7 +56,7 @@ from overlay_utils import (
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, defaults, preferences, debug_captions: bool = False):
+    def __init__(self, defaults, preferences, debug_captions: bool = False, enable_logging: bool = False):
         super().__init__()
 
         self.defaults = defaults
@@ -103,11 +103,14 @@ class OverlayWindow(QWidget):
         self._capture_frame_time = None
         self._last_prediction = None
         self._model_name = None
-        self.caption_logger = CaptionLogger(
-            is_simulation=self.debug_captions,
-            llm_smoothing_enabled=self.enable_llm_smoothing,
-            model_name="debug_random_generator" if self.debug_captions else None,
-        )
+        if enable_logging:
+            self.caption_logger = CaptionLogger(
+                is_simulation=self.debug_captions,
+                llm_smoothing_enabled=self.enable_llm_smoothing,
+                model_name="debug_random_generator" if self.debug_captions else None,
+            )
+        else:
+            self.caption_logger = None
         self._preview_timer = QTimer(self)
         self._preview_timer.setInterval(max(1, int(1000 / max(1, CAPTURE_FPS))))
         self._preview_timer.timeout.connect(self._update_preview_frame)

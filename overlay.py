@@ -26,8 +26,9 @@ warnings.filterwarnings(
 )
 
 DEBUG_CAPTIONS = "--random" in sys.argv
-if DEBUG_CAPTIONS:
-    sys.argv = [arg for arg in sys.argv if arg != "--random"]
+ENABLE_LOGGING = "--log" in sys.argv
+if DEBUG_CAPTIONS or ENABLE_LOGGING:
+    sys.argv = [arg for arg in sys.argv if arg not in ("--random", "--log")]
 DEBUG_CAPTION_INTERVAL_MS = 450
 
 
@@ -146,7 +147,12 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(True)
 
-    overlay = OverlayWindow(defaults=defaults, preferences=preferences, debug_captions=DEBUG_CAPTIONS)
+    overlay = OverlayWindow(
+        defaults=defaults,
+        preferences=preferences,
+        debug_captions=DEBUG_CAPTIONS,
+        enable_logging=ENABLE_LOGGING,
+    )
     overlay.show()
     overlay.raise_()
 
