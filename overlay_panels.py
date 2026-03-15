@@ -2,7 +2,7 @@ import html
 import re
 
 from PyQt5.QtCore import QRectF, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -212,6 +212,10 @@ class PrimaryPanel(QFrame):
             rendered.append(escaped)
         return "".join(rendered)
 
+from PyQt5.QtWidgets import QCheckBox
+from PyQt5.QtGui import QPainter, QPen, QColor, QPalette
+from PyQt5.QtCore import Qt
+
 class ThemedCheckBox(QCheckBox):
     def __init__(self, text: str):
         super().__init__(text)
@@ -237,28 +241,41 @@ class ThemedCheckBox(QCheckBox):
             -(self.height() - indicator_y - self._indicator_size),
         )
 
-        border_color = QColor(255, 255, 255, 110 if self.isChecked() else 85)
-        fill_color = QColor(255, 255, 255, 48 if self.isChecked() else 18)
+        # If text color is dark → assume light mode
+        light_mode = self.palette().color(self.foregroundRole()).lightness() < 128
+
+        if light_mode:
+            border_color = QColor(0, 0, 0, 110 if self.isChecked() else 85)
+            fill_color = QColor(0, 0, 0, 48 if self.isChecked() else 18)
+            tick_color = QColor(0, 0, 0, 240)
+        else:
+            # ORIGINAL COLORS (unchanged)
+            border_color = QColor(255, 255, 255, 110 if self.isChecked() else 85)
+            fill_color = QColor(255, 255, 255, 48 if self.isChecked() else 18)
+            tick_color = QColor(245, 245, 245, 240)
+
         painter.setPen(QPen(border_color, 1))
         painter.setBrush(fill_color)
         painter.drawRoundedRect(indicator_rect, 3, 3)
 
         if self.isChecked():
-            check_pen = QPen(QColor(245, 245, 245, 240), 2)
+            check_pen = QPen(tick_color, 2)
             painter.setPen(check_pen)
             x = indicator_rect.x()
             y = indicator_rect.y()
             w = indicator_rect.width()
             h = indicator_rect.height()
-            painter.drawLine(x + int(w * 0.20), y + int(h * 0.55), x + int(w * 0.42), y + int(h * 0.78))
-            painter.drawLine(x + int(w * 0.42), y + int(h * 0.78), x + int(w * 0.80), y + int(h * 0.28))
+
+            painter.drawLine(x + int(w * 0.20), y + int(h * 0.55),
+                             x + int(w * 0.42), y + int(h * 0.78))
+            painter.drawLine(x + int(w * 0.42), y + int(h * 0.78),
+                             x + int(w * 0.80), y + int(h * 0.28))
 
         text_x = self._indicator_size + self._indicator_spacing
         text_rect = self.rect().adjusted(text_x, 0, 0, 0)
         painter.setPen(self.palette().color(self.foregroundRole()))
         painter.setFont(self.font())
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, self.text())
-
 
 class ThemedComboBox(QComboBox):
     def paintEvent(self, event):
