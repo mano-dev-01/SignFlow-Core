@@ -7,5 +7,6 @@
   "corner": "Bottom Right",
   "show_miniplayer": true,
   "flip_input": true,
-  "primary_hand_only": true
+  "primary_hand_only": true,
+  "light_theme": false
 }

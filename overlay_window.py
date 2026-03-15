@@ -26,6 +26,7 @@ from overlay_constants import (
     DEFAULT_SETTINGS_PATH,
     ENABLE_COLLAPSE_ANIMATION,
     FONT_FAMILY,
+    get_theme_palette,
     HIGHLIGHT_DURATION_MS,
     LABEL_DEFAULT_TEXT,
     MAX_OPACITY_PERCENT,
@@ -76,6 +77,7 @@ class OverlayWindow(QWidget):
         self.show_miniplayer = self.preferences["show_miniplayer"]
         self.flip_input = self.preferences["flip_input"]
         self.primary_hand_only = self.preferences["primary_hand_only"]
+        self.light_theme = self.preferences["light_theme"]
         self.secondary_expanded = False
         self.secondary_current_height = 0
         self.advanced_expanded = False
@@ -146,6 +148,7 @@ class OverlayWindow(QWidget):
 
         self._rebuild_stack()
         self._connect_signals()
+        self._apply_theme()
         self.primary_panel.set_expanded_icon(self.secondary_expanded)
         self.apply_state_to_ui()
 
@@ -172,6 +175,7 @@ class OverlayWindow(QWidget):
         self.preferences["show_miniplayer"] = self.show_miniplayer
         self.preferences["flip_input"] = self.flip_input
         self.preferences["primary_hand_only"] = self.primary_hand_only
+        self.preferences["light_theme"] = self.light_theme
         save_user_preferences(self.preferences)
 
     def _connect_signals(self):
@@ -192,6 +196,7 @@ class OverlayWindow(QWidget):
         self.advanced_panel.show_model_status_checkbox.toggled.connect(self.on_show_model_status_toggled)
         self.advanced_panel.flip_input_checkbox.toggled.connect(self.on_flip_input_toggled)
         self.advanced_panel.primary_hand_only_checkbox.toggled.connect(self.on_primary_hand_only_toggled)
+        self.advanced_panel.light_theme_checkbox.toggled.connect(self.on_light_theme_toggled)
         self.advanced_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
         self.advanced_panel.restart_button.clicked.connect(self.on_restart_requested)
         self.advanced_panel.reset_preferences_button.clicked.connect(self.on_reset_preferences_requested)
@@ -341,6 +346,7 @@ class OverlayWindow(QWidget):
         self.advanced_panel.show_model_status_checkbox.setChecked(self.freeze_on_detection_loss)
         self.advanced_panel.flip_input_checkbox.setChecked(self.flip_input)
         self.advanced_panel.primary_hand_only_checkbox.setChecked(self.primary_hand_only)
+        self.advanced_panel.light_theme_checkbox.setChecked(self.light_theme)
         self.advanced_panel.corner_combo.setCurrentText(self.corner)
         self.advanced_panel.set_status_active(False)
 
@@ -423,11 +429,24 @@ class OverlayWindow(QWidget):
             self.hand_worker.set_primary_hand_only(self.primary_hand_only)
         self._write_preferences()
 
+    def on_light_theme_toggled(self, checked: bool):
+        self.light_theme = bool(checked)
+        self._apply_theme()
+        self._write_preferences()
+
     def _sync_model_status_availability(self):
         enabled = bool(self.show_miniplayer)
         self.advanced_panel.show_model_status_checkbox.setEnabled(enabled)
         if not enabled and self.advanced_panel.show_model_status_checkbox.isChecked():
             self.advanced_panel.show_model_status_checkbox.setChecked(False)
+
+    def _apply_theme(self):
+        theme = get_theme_palette(self.light_theme)
+        self.primary_panel.apply_theme(theme)
+        self.secondary_panel.apply_theme(theme)
+        self.advanced_panel.apply_theme(theme)
+        if self.preview_window is not None:
+            self.preview_window.apply_theme(theme)
 
     def on_corner_changed(self, text: str):
         self.corner = text
@@ -651,6 +670,7 @@ class OverlayWindow(QWidget):
             return
         if self.preview_window is None:
             self.preview_window = PreviewWindow()
+            self.preview_window.apply_theme(get_theme_palette(self.light_theme))
         self.preview_window.set_status_visible(self.advanced_panel.show_model_status_checkbox.isChecked())
         self.preview_window.set_capture_state(self._current_system_state())
         self.preview_window.set_region_info(self.capture_state.get("region"), self.first_launch_hint)

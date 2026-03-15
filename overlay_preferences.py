@@ -58,6 +58,7 @@ def _sanitize_settings(raw):
         "show_miniplayer": _as_bool(source.get("show_miniplayer"), DEFAULT_SETTINGS["show_miniplayer"]),
         "flip_input": _as_bool(source.get("flip_input"), DEFAULT_SETTINGS["flip_input"]),
         "primary_hand_only": _as_bool(source.get("primary_hand_only"), DEFAULT_SETTINGS["primary_hand_only"]),
+        "light_theme": _as_bool(source.get("light_theme"), DEFAULT_SETTINGS["light_theme"]),
     }
 
 

@@ -94,6 +94,78 @@ BORDER_COLOR = "rgba(255, 255, 255, 28)"
 BUTTON_BG = "rgba(255, 255, 255, 24)"
 BUTTON_HOVER_BG = "rgba(255, 255, 255, 52)"
 
+THEME_DARK = {
+    "is_light": False,
+    "primary_bg": PRIMARY_BG,
+    "secondary_bg": SECONDARY_BG,
+    "border_color": BORDER_COLOR,
+    "text_color": TEXT_COLOR,
+    "text_muted": "rgba(220, 220, 220, 190)",
+    "button_bg": BUTTON_BG,
+    "button_hover_bg": BUTTON_HOVER_BG,
+    "button_border": BORDER_COLOR,
+    "tooltip_bg": "rgba(20, 20, 24, 235)",
+    "tooltip_text": TEXT_COLOR,
+    "status_chip_bg": "rgba(255, 255, 255, 10)",
+    "status_chip_text": TEXT_COLOR,
+    "icon_color": "rgba(255, 255, 255, 255)",
+    "preview_title_bg": PREVIEW_TITLE_BG,
+    "preview_title_text": PREVIEW_TITLE_TEXT,
+    "preview_title_subtext": PREVIEW_TITLE_SUBTEXT,
+    "preview_region_bg": PREVIEW_REGION_BG,
+    "preview_region_text": PREVIEW_REGION_TEXT,
+    "preview_hint_text": PREVIEW_HINT_TEXT,
+    "preview_container_bg": "rgba(0, 0, 0, 210)",
+    "preview_container_border": "rgba(255, 255, 255, 40)",
+    "status_panel_bg": STATUS_PANEL_BG,
+    "status_panel_border": STATUS_PANEL_BORDER,
+    "status_panel_text": STATUS_PANEL_TEXT,
+    "status_panel_title": STATUS_PANEL_TITLE,
+    "dropdown_bg": "rgba(40, 40, 43, 240)",
+    "selection_bg": "rgba(255, 255, 255, 46)",
+    "slider_groove_bg": "rgba(255, 255, 255, 36)",
+    "slider_handle_bg": "rgba(255, 255, 255, 190)",
+    "slider_handle_border": "rgba(255, 255, 255, 80)",
+}
+
+THEME_LIGHT = {
+    "is_light": True,
+    "primary_bg": "rgba(246, 247, 249, 255)",
+    "secondary_bg": "rgba(236, 238, 242, 255)",
+    "border_color": "rgba(0, 0, 0, 22)",
+    "text_color": "rgba(0, 0, 0, 235)",
+    "text_muted": "rgba(110, 114, 124, 220)",
+    "button_bg": "rgba(0, 0, 0, 8)",
+    "button_hover_bg": "rgba(0, 0, 0, 16)",
+    "button_border": "rgba(0, 0, 0, 44)",
+    "tooltip_bg": "rgba(250, 250, 252, 245)",
+    "tooltip_text": "rgba(0, 0, 0, 235)",
+    "status_chip_bg": "rgba(0, 0, 0, 6)",
+    "status_chip_text": "rgba(0, 0, 0, 235)",
+    "icon_color": "rgba(0, 0, 0, 235)",
+    "preview_title_bg": "rgba(236, 238, 242, 255)",
+    "preview_title_text": "rgba(0, 0, 0, 235)",
+    "preview_title_subtext": "rgba(40, 40, 46, 220)",
+    "preview_region_bg": "rgba(0, 0, 0, 10)",
+    "preview_region_text": "rgba(0, 0, 0, 235)",
+    "preview_hint_text": "rgba(40, 40, 46, 220)",
+    "preview_container_bg": "rgba(255, 255, 255, 255)",
+    "preview_container_border": "rgba(0, 0, 0, 20)",
+    "status_panel_bg": "rgba(246, 247, 249, 255)",
+    "status_panel_border": "rgba(0, 0, 0, 18)",
+    "status_panel_text": "rgba(0, 0, 0, 235)",
+    "status_panel_title": "rgba(0, 0, 0, 235)",
+    "dropdown_bg": "rgba(246, 247, 249, 255)",
+    "selection_bg": "rgba(0, 0, 0, 10)",
+    "slider_groove_bg": "rgba(0, 0, 0, 16)",
+    "slider_handle_bg": "rgba(0, 0, 0, 200)",
+    "slider_handle_border": "rgba(0, 0, 0, 120)",
+}
+
+
+def get_theme_palette(light_theme: bool):
+    return THEME_LIGHT if light_theme else THEME_DARK
+
 # OPTIONS
 CORNER_TOP_LEFT = "Top Left"
 CORNER_TOP_RIGHT = "Top Right"
@@ -117,4 +189,5 @@ DEFAULT_SETTINGS = {
     "show_miniplayer": True,
     "flip_input": CAPTURE_FLIP_HORIZONTAL,
     "primary_hand_only": True,
+    "light_theme": False,
 }

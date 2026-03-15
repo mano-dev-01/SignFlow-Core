@@ -30,6 +30,7 @@ from overlay_constants import (
     DEFAULT_FONT_SIZE,
     DEFAULT_PRIMARY_BOX_SIZE,
     FONT_FAMILY,
+    get_theme_palette,
     LABEL_DEFAULT_TEXT,
     MAX_OPACITY_PERCENT,
     MIN_OPACITY_PERCENT,
@@ -100,33 +101,16 @@ class PrimaryPanel(QFrame):
         root.addWidget(self.caption_label, 1)
         root.addLayout(right_buttons)
 
-        self._base_stylesheet = (
-            "QFrame#primaryPanel {{"
-            f"background-color: {PRIMARY_BG};"
-            "border: 1px solid {border_color};"
-            f"border-radius: {RADIUS}px;"
-            "}}"
-            "QLabel {{"
-            f"color: {TEXT_COLOR};"
-            "}}"
-            "QPushButton {{"
-            f"background-color: {BUTTON_BG};"
-            f"border: 1px solid {BORDER_COLOR};"
-            "border-radius: 8px;"
-            f"color: {TEXT_COLOR};"
-            f"font: 600 13px '{FONT_FAMILY}';"
-            "}}"
-            "QPushButton:hover {{"
-            f"background-color: {BUTTON_HOVER_BG};"
-            "}}"
-        )
-        self._apply_panel_style(BORDER_COLOR)
+        self._theme = get_theme_palette(False)
+        self._muted_text_color = self._theme.get("text_muted", "rgba(220, 220, 220, 190)")
+        self._base_stylesheet = ""
+        self.apply_theme(self._theme)
 
     def set_caption_mode(self, mode: str):
         mode = mode or "caption"
         self._caption_mode = mode
         if mode == "init":
-            self.caption_label.setStyleSheet("color: rgba(220, 220, 220, 190);")
+            self.caption_label.setStyleSheet(f"color: {self._muted_text_color};")
         else:
             self.caption_label.setStyleSheet("")
 
@@ -148,6 +132,35 @@ class PrimaryPanel(QFrame):
 
     def _apply_panel_style(self, border_color: str):
         self.setStyleSheet(self._base_stylesheet.format(border_color=border_color))
+
+    def apply_theme(self, theme: dict):
+        self._theme = theme
+        self._muted_text_color = theme.get("text_muted", "rgba(220, 220, 220, 190)")
+        self._base_stylesheet = (
+            "QFrame#primaryPanel {{"
+            f"background-color: {theme['primary_bg']};"
+            "border: 1px solid {border_color};"
+            f"border-radius: {RADIUS}px;"
+            "}}"
+            "QLabel {{"
+            f"color: {theme['text_color']};"
+            "}}"
+            "QPushButton {{"
+            f"background-color: {theme['button_bg']};"
+            f"border: 1px solid {theme['button_border']};"
+            "border-radius: 8px;"
+            f"color: {theme['text_color']};"
+            f"font: 600 13px '{FONT_FAMILY}';"
+            "}}"
+            "QPushButton:hover {{"
+            f"background-color: {theme['button_hover_bg']};"
+            "}}"
+        )
+        self._apply_panel_style(theme["border_color"])
+        if self._caption_mode == "init":
+            self.caption_label.setStyleSheet(f"color: {self._muted_text_color};")
+        else:
+            self.caption_label.setStyleSheet("")
 
     def _recompute_height(self):
         width = self.caption_label.width()
@@ -246,6 +259,7 @@ class ThemedCheckBox(QCheckBox):
         painter.setFont(self.font())
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, self.text())
 
+
 class ThemedComboBox(QComboBox):
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -267,21 +281,21 @@ class ThemedComboBox(QComboBox):
         painter.drawPath(path)
         painter.end()
 
-def _panel_styles(panel_name: str):
+def _panel_styles(panel_name: str, theme: dict):
     return f"""
         QFrame#{panel_name} {{
-            background-color: {SECONDARY_BG};
-            border: 1px solid {BORDER_COLOR};
+            background-color: {theme["secondary_bg"]};
+            border: 1px solid {theme["border_color"]};
             border-radius: {RADIUS}px;
         }}
         QFrame#secondaryDivider {{
             border: none;
             min-height: 1px;
             max-height: 1px;
-            background-color: rgba(255, 255, 255, 30);
+            background-color: {theme["border_color"]};
         }}
         QLabel, QCheckBox {{
-            color: {TEXT_COLOR};
+            color: {theme["text_color"]};
             font: 500 {SECONDARY_LABEL_FONT_SIZE}px '{FONT_FAMILY}';
         }}
         QCheckBox {{
@@ -289,9 +303,9 @@ def _panel_styles(panel_name: str):
             spacing: 10px;
         }}
         QComboBox {{
-            background-color: rgba(255, 255, 255, 24);
-            color: {TEXT_COLOR};
-            border: 1px solid {BORDER_COLOR};
+            background-color: {theme["button_bg"]};
+            color: {theme["text_color"]};
+            border: 1px solid {theme["border_color"]};
             border-radius: 6px;
             padding: 6px 10px;
             padding-right: 28px;
@@ -303,7 +317,7 @@ def _panel_styles(panel_name: str):
             subcontrol-position: top right;
             width: {SECONDARY_DROPDOWN_WIDTH}px;
             border: none;
-            border-left: 1px solid {BORDER_COLOR};
+            border-left: 1px solid {theme["border_color"]};
             background: transparent;
             border-top-right-radius: 6px;
             border-bottom-right-radius: 6px;
@@ -316,11 +330,11 @@ def _panel_styles(panel_name: str):
             margin: 0px;
         }}
         QComboBox QAbstractItemView {{
-            background-color: rgba(40, 40, 43, 240);
-            color: {TEXT_COLOR};
-            border: 1px solid {BORDER_COLOR};
-            selection-background-color: rgba(255, 255, 255, 46);
-            selection-color: {TEXT_COLOR};
+            background-color: {theme["dropdown_bg"]};
+            color: {theme["text_color"]};
+            border: 1px solid {theme["border_color"]};
+            selection-background-color: {theme["selection_bg"]};
+            selection-color: {theme["text_color"]};
             outline: 0;
             padding: 6px;
             font: 500 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
@@ -328,71 +342,71 @@ def _panel_styles(panel_name: str):
         QSlider::groove:horizontal {{
             border: none;
             height: {SECONDARY_SLIDER_GROOVE_HEIGHT}px;
-            background: rgba(255, 255, 255, 36);
+            background: {theme["slider_groove_bg"]};
             border-radius: 3px;
         }}
         QSlider::handle:horizontal {{
-            background: rgba(255, 255, 255, 180);
-            border: none;
+            background: {theme["slider_handle_bg"]};
+            border: 1px solid {theme["slider_handle_border"]};
             width: {SECONDARY_SLIDER_HANDLE_SIZE}px;
             margin: -5px 0;
             border-radius: 8px;
         }}
         QPushButton#restartButton {{
-            background-color: {BUTTON_BG};
-            border: 1px solid {BORDER_COLOR};
+            background-color: {theme["button_bg"]};
+            border: 1px solid {theme["button_border"]};
             border-radius: 8px;
-            color: {TEXT_COLOR};
+            color: {theme["text_color"]};
             font: 600 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
             padding: 4px 10px;
         }}
         QPushButton#restartButton:hover {{
-            background-color: {BUTTON_HOVER_BG};
+            background-color: {theme["button_hover_bg"]};
         }}
         QPushButton#actionButton {{
-            background-color: {BUTTON_BG};
-            border: 1px solid {BORDER_COLOR};
+            background-color: {theme["button_bg"]};
+            border: 1px solid {theme["button_border"]};
             border-radius: {SECONDARY_SIDE_BUTTON_RADIUS}px;
-            color: {TEXT_COLOR};
+            color: {theme["text_color"]};
             font: 600 18px '{FONT_FAMILY}';
         }}
         QPushButton#actionButton:hover {{
-            background-color: {BUTTON_HOVER_BG};
+            background-color: {theme["button_hover_bg"]};
         }}
         QPushButton#actionButton:focus {{
             outline: none;
             border: 1px solid {BORDER_COLOR};
         }}
         QPushButton#actionPrimaryButton {{
-            background-color: {BUTTON_BG};
-            border: 1px solid {BORDER_COLOR};
+            background-color: {theme["button_bg"]};
+            border: 1px solid {theme["button_border"]};
             border-radius: {SECONDARY_PLAY_BUTTON_RADIUS}px;
-            color: {TEXT_COLOR};
+            color: {theme["text_color"]};
             font: 600 18px '{FONT_FAMILY}';
         }}
         QPushButton#actionPrimaryButton:hover {{
-            background-color: {BUTTON_HOVER_BG};
+            background-color: {theme["button_hover_bg"]};
         }}
         QPushButton#actionPrimaryButton:pressed {{
             background-color: rgba(255, 255, 255, 38);
-            border: 1px solid {BORDER_COLOR};
+            border: 1px solid {theme["button_border"]};
         }}
         QPushButton#actionPrimaryButton:focus {{
             outline: none;
-            border: 1px solid {BORDER_COLOR};
+            border: 1px solid {theme["button_border"]};
         }}
         QToolTip {{
-            background-color: rgba(20, 20, 24, 235);
-            color: {TEXT_COLOR};
-            border: 1px solid {BORDER_COLOR};
+            background-color: {theme["tooltip_bg"]};
+            color: {theme["tooltip_text"]};
+            border: 1px solid {theme["border_color"]};
             border-radius: 6px;
             padding: 7px 9px;
             font: 500 13px '{FONT_FAMILY}';
         }}
         QLabel#actionStatus {{
-            color: {TEXT_COLOR};
-            background: rgba(255, 255, 255, 10);
-            border: 1px solid {BORDER_COLOR};
+            color: {theme["status_chip_text"]};
+            background: {theme["status_chip_bg"]};
+            border: 1px solid {theme["border_color"]};
             border-radius: 7px;
             padding: 0 10px;
             font: 600 13px '{FONT_FAMILY}';
@@ -412,6 +426,8 @@ class SecondaryPanel(QFrame):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._is_playing = False
         self._expanded_height = 0
+        self._theme = get_theme_palette(False)
+        self._icon_color = QColor(255, 255, 255, 235)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
@@ -471,7 +487,7 @@ class SecondaryPanel(QFrame):
         root.addWidget(action_divider)
         root.addWidget(self.show_advanced_button)
 
-        self.setStyleSheet(_panel_styles("secondaryPanel"))
+        self.setStyleSheet(_panel_styles("secondaryPanel", self._theme))
         self._expanded_height = self.sizeHint().height()
         self.setFixedHeight(0)
 
@@ -491,7 +507,7 @@ class SecondaryPanel(QFrame):
         self.advanced_toggled.emit(bool(checked))
 
     def _apply_advanced_button_label(self, expanded: bool):
-        caret = "▴" if expanded else "▾"
+        caret = "\u25B4" if expanded else "\u25BE"
         self.show_advanced_button.setText(f"Advanced {caret}")
 
     @staticmethod
@@ -520,7 +536,7 @@ class SecondaryPanel(QFrame):
         pix = self._new_icon_canvas(size)
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor(245, 245, 245, 235), 1.8)
+        pen = QPen(self._icon_color, 1.8)
         painter.setPen(pen)
         m = 3
         painter.drawRect(m, m, size - (m * 2), size - (m * 2))
@@ -533,7 +549,7 @@ class SecondaryPanel(QFrame):
         pix = self._new_icon_canvas(size)
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor(245, 245, 245, 235), 1.6)
+        pen = QPen(self._icon_color, 1.6)
         pen.setCapStyle(Qt.SquareCap)
         painter.setPen(pen)
 
@@ -562,7 +578,7 @@ class SecondaryPanel(QFrame):
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(245, 245, 245, 235))
+        painter.setBrush(self._icon_color)
         path = QPainterPath()
         path.moveTo(size * 0.30, size * 0.20)
         path.lineTo(size * 0.30, size * 0.80)
@@ -577,7 +593,7 @@ class SecondaryPanel(QFrame):
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing, True)
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(245, 245, 245, 235))
+        painter.setBrush(self._icon_color)
         w = size * 0.20
         gap = size * 0.14
         left = (size - (w * 2 + gap)) / 2.0
@@ -592,7 +608,7 @@ class SecondaryPanel(QFrame):
         pix = self._new_icon_canvas(size)
         painter = QPainter(pix)
         painter.setRenderHint(QPainter.Antialiasing, True)
-        pen = QPen(QColor(245, 245, 245, 235), 2.0)
+        pen = QPen(self._icon_color, 2.0)
         painter.setPen(pen)
         m = int(size * 0.24)
         painter.drawLine(m, m, int(size - m), int(size - m))
@@ -614,6 +630,17 @@ class SecondaryPanel(QFrame):
         self._is_playing = not self._is_playing
         self._apply_play_pause_icon()
         self.play_pause_toggled.emit(self._is_playing)
+
+    def apply_theme(self, theme: dict):
+        self._theme = theme
+        if theme.get("is_light"):
+            self._icon_color = QColor(theme["icon_color"])
+        else:
+            self._icon_color = QColor(255, 255, 255, 235)
+        self.setStyleSheet(_panel_styles("secondaryPanel", theme))
+        self.crop_button.setIcon(self._build_crop_icon(SECONDARY_ACTION_ICON_SIZE))
+        self.clear_button.setIcon(self._build_region_icon(SECONDARY_ACTION_ICON_SIZE))
+        self._apply_play_pause_icon()
 
 class AdvancedPanel(QFrame):
     def __init__(self):
@@ -651,6 +678,7 @@ class AdvancedPanel(QFrame):
         self.disable_llm_checkbox = ThemedCheckBox("Disable LLM smoothing")
         self.flip_input_checkbox = ThemedCheckBox("Flip input")
         self.primary_hand_only_checkbox = ThemedCheckBox("Detect only one / primary hand")
+        self.light_theme_checkbox = ThemedCheckBox("Light theme")
 
         self.corner_combo = ThemedComboBox()
         self.corner_combo.addItems(CORNER_OPTIONS)
@@ -677,6 +705,7 @@ class AdvancedPanel(QFrame):
         left_col.addLayout(self._labeled_row("Caption box opacity", self.opacity_slider))
         left_col.addWidget(self.show_miniplayer_checkbox)
         left_col.addWidget(self.show_model_status_checkbox)
+        left_col.addWidget(self.light_theme_checkbox)
         left_col.addStretch(1)
 
         right_col.addWidget(self.disable_llm_checkbox)
@@ -693,7 +722,8 @@ class AdvancedPanel(QFrame):
         root.addLayout(columns_row)
         root.addWidget(self.reset_preferences_button)
 
-        self.setStyleSheet(_panel_styles("advancedPanel"))
+        self._theme = get_theme_palette(False)
+        self.setStyleSheet(_panel_styles("advancedPanel", self._theme))
         self._expanded_height = self.sizeHint().height()
         self.setFixedHeight(0)
 
@@ -724,3 +754,7 @@ class AdvancedPanel(QFrame):
     def set_status_active(self, active: bool):
         self._status_active = bool(active)
         self._apply_status_indicator()
+
+    def apply_theme(self, theme: dict):
+        self._theme = theme
+        self.setStyleSheet(_panel_styles("advancedPanel", theme))

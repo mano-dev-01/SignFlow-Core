@@ -5,22 +5,13 @@ from PyQt5.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from overlay_constants import (
     FONT_FAMILY,
     PREVIEW_HEIGHT,
-    PREVIEW_HINT_TEXT,
     PREVIEW_MARGIN,
-    PREVIEW_REGION_BG,
-    PREVIEW_REGION_TEXT,
-    PREVIEW_TITLE_BG,
     PREVIEW_TITLE_HEIGHT,
-    PREVIEW_TITLE_SUBTEXT,
-    PREVIEW_TITLE_TEXT,
     PREVIEW_WIDTH,
-    STATUS_PANEL_BG,
-    STATUS_PANEL_BORDER,
     STATUS_PANEL_FONT_SIZE,
     STATUS_PANEL_PADDING,
-    STATUS_PANEL_TEXT,
-    STATUS_PANEL_TITLE,
     STATUS_PANEL_TITLE_SIZE,
+    get_theme_palette,
 )
 from overlay_utils import _set_window_excluded_from_capture
 
@@ -63,7 +54,7 @@ class PreviewWindow(QWidget):
 
         self.label = QLabel(self.preview_container)
         self.label.setAlignment(Qt.AlignCenter)
-        self.label.setStyleSheet("background-color: rgba(0, 0, 0, 210); border: 1px solid rgba(255, 255, 255, 40);")
+        self.label.setStyleSheet("")
 
         self.region_label = QLabel(self.preview_container)
         self.region_label.setObjectName("previewRegion")
@@ -103,57 +94,8 @@ class PreviewWindow(QWidget):
         layout.addWidget(self.preview_container)
         layout.addWidget(self.status_panel)
 
-        self.setStyleSheet(
-            f"""
-            QWidget#previewTitleBar {{
-                background-color: {PREVIEW_TITLE_BG};
-                border: 1px solid rgba(255, 255, 255, 24);
-                border-bottom: none;
-            }}
-            QLabel#previewTitle {{
-                color: {PREVIEW_TITLE_TEXT};
-                font: 600 12px '{FONT_FAMILY}';
-            }}
-            QLabel#previewState {{
-                color: {PREVIEW_TITLE_SUBTEXT};
-                font: 600 11px '{FONT_FAMILY}';
-            }}
-            QFrame#previewContainer {{
-                background-color: rgba(0, 0, 0, 210);
-                border-left: 1px solid rgba(255, 255, 255, 40);
-                border-right: 1px solid rgba(255, 255, 255, 40);
-                border-bottom: 1px solid rgba(255, 255, 255, 40);
-            }}
-            QLabel#previewRegion {{
-                color: {PREVIEW_REGION_TEXT};
-                background-color: {PREVIEW_REGION_BG};
-                border-radius: 6px;
-                padding: 2px 8px;
-                font: 600 11px '{FONT_FAMILY}';
-            }}
-            QLabel#previewEmpty {{
-                color: {PREVIEW_TITLE_TEXT};
-                font: 600 12px '{FONT_FAMILY}';
-            }}
-            QLabel#previewHint {{
-                color: {PREVIEW_HINT_TEXT};
-                font: 500 11px '{FONT_FAMILY}';
-            }}
-            QWidget#statusPanel {{
-                background-color: {STATUS_PANEL_BG};
-                border: 1px solid {STATUS_PANEL_BORDER};
-                border-top: none;
-            }}
-            QLabel#statusTitle {{
-                color: {STATUS_PANEL_TITLE};
-                font: 600 {STATUS_PANEL_TITLE_SIZE}px '{FONT_FAMILY}';
-            }}
-            QLabel#statusBody {{
-                color: {STATUS_PANEL_TEXT};
-                font: 500 {STATUS_PANEL_FONT_SIZE}px '{FONT_FAMILY}';
-            }}
-            """
-        )
+        self._theme = get_theme_palette(False)
+        self.apply_theme(self._theme)
 
         self._update_empty_state()
         self._layout_preview_overlays()
@@ -172,6 +114,64 @@ class PreviewWindow(QWidget):
             color = "rgb(145, 145, 145)"
             text = "IDLE"
         self.state_label.setText(f"<span style=\"color:{color};\">●</span> {text}")
+
+    def apply_theme(self, theme: dict):
+        self._theme = theme
+        self.setStyleSheet(
+            f"""
+            QWidget#previewTitleBar {{
+                background-color: {theme["preview_title_bg"]};
+                border: 1px solid {theme["border_color"]};
+                border-bottom: none;
+            }}
+            QLabel#previewTitle {{
+                color: {theme["preview_title_text"]};
+                font: 600 12px '{FONT_FAMILY}';
+            }}
+            QLabel#previewState {{
+                color: {theme["preview_title_subtext"]};
+                font: 600 11px '{FONT_FAMILY}';
+            }}
+            QFrame#previewContainer {{
+                background-color: {theme["preview_container_bg"]};
+                border-left: 1px solid {theme["preview_container_border"]};
+                border-right: 1px solid {theme["preview_container_border"]};
+                border-bottom: 1px solid {theme["preview_container_border"]};
+            }}
+            QLabel#previewRegion {{
+                color: {theme["preview_region_text"]};
+                background-color: {theme["preview_region_bg"]};
+                border-radius: 6px;
+                padding: 2px 8px;
+                font: 600 11px '{FONT_FAMILY}';
+            }}
+            QLabel#previewEmpty {{
+                color: {theme["preview_title_text"]};
+                font: 600 12px '{FONT_FAMILY}';
+            }}
+            QLabel#previewHint {{
+                color: {theme["preview_hint_text"]};
+                font: 500 11px '{FONT_FAMILY}';
+            }}
+            QWidget#statusPanel {{
+                background-color: {theme["status_panel_bg"]};
+                border: 1px solid {theme["status_panel_border"]};
+                border-top: none;
+            }}
+            QLabel#statusTitle {{
+                color: {theme["status_panel_title"]};
+                font: 600 {STATUS_PANEL_TITLE_SIZE}px '{FONT_FAMILY}';
+            }}
+            QLabel#statusBody {{
+                color: {theme["status_panel_text"]};
+                font: 500 {STATUS_PANEL_FONT_SIZE}px '{FONT_FAMILY}';
+            }}
+            """
+        )
+        self.label.setStyleSheet(
+            f"background-color: {theme['preview_container_bg']};"
+            f"border: 1px solid {theme['preview_container_border']};"
+        )
 
     def set_capture_state(self, state: str):
         normalized = (state or "IDLE").upper()
