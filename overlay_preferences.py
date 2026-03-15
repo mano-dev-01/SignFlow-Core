@@ -6,7 +6,6 @@ from overlay_constants import (
     DEFAULT_SETTINGS_PATH,
     MAX_OPACITY_PERCENT,
     MIN_OPACITY_PERCENT,
-    MODEL_OPTIONS,
     PRIMARY_BOX_SIZE_MAX,
     PRIMARY_BOX_SIZE_MIN,
     USER_PREFERENCES_PATH,
@@ -37,12 +36,10 @@ def _sanitize_settings(raw):
             DEFAULT_SETTINGS["caption_box_size"],
         ),
         "opacity_percent": _clamp_int(source.get("opacity_percent"), MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT, DEFAULT_SETTINGS["opacity_percent"]),
-        "show_raw_tokens": _as_bool(source.get("show_raw_tokens"), DEFAULT_SETTINGS["show_raw_tokens"]),
         "freeze_on_detection_loss": _as_bool(source.get("freeze_on_detection_loss"), DEFAULT_SETTINGS["freeze_on_detection_loss"]),
         "enable_llm_smoothing": _as_bool(source.get("enable_llm_smoothing"), DEFAULT_SETTINGS["enable_llm_smoothing"]),
-        "model_selection": source.get("model_selection") if source.get("model_selection") in MODEL_OPTIONS else DEFAULT_SETTINGS["model_selection"],
-        "show_latency": _as_bool(source.get("show_latency"), DEFAULT_SETTINGS["show_latency"]),
         "corner": source.get("corner") if source.get("corner") in CORNER_OPTIONS else DEFAULT_SETTINGS["corner"],
+        "show_miniplayer": _as_bool(source.get("show_miniplayer"), DEFAULT_SETTINGS["show_miniplayer"]),
     }
 
 

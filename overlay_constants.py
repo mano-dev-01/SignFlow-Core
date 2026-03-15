@@ -10,7 +10,7 @@ EXCLUDE_OVERLAY_FROM_CAPTURE = False
 # CAPTURE / PREVIEW
 CAPTURE_FPS = 30
 CAPTURE_FLIP_HORIZONTAL = True
-SIGN_PREDICTION_MIN_CONFIDENCE = 0.7
+SIGN_PREDICTION_MIN_CONFIDENCE = 0.6
 DETECTION_MAX_DIM = 640
 DETECTION_MIN_DIM = 320
 ENABLE_DETECTION_RESIZE = True
@@ -46,7 +46,6 @@ OVERLAY_WIDTH = 520
 OVERLAY_MARGIN = 20
 OUTER_PADDING = 10
 PANEL_SPACING = 8
-SECONDARY_EXPANDED_HEIGHT = 420
 ANIMATION_DURATION_MS = 220
 RADIUS = 14
 
@@ -96,7 +95,6 @@ CORNER_BOTTOM_LEFT = "Bottom Left"
 CORNER_BOTTOM_RIGHT = "Bottom Right"
 DEFAULT_CORNER = CORNER_BOTTOM_RIGHT
 CORNER_OPTIONS = [CORNER_TOP_LEFT, CORNER_TOP_RIGHT, CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT]
-MODEL_OPTIONS = ["Local Small", "Local Medium"]
 
 # PREFERENCES
 PROJECT_DIR = Path(__file__).resolve().parent
@@ -106,10 +104,8 @@ USER_PREFERENCES_PATH = PROJECT_DIR / "user_preferences.json"
 DEFAULT_SETTINGS = {
     "caption_box_size": DEFAULT_PRIMARY_BOX_SIZE,
     "opacity_percent": int(DEFAULT_OPACITY * 100),
-    "show_raw_tokens": False,
     "freeze_on_detection_loss": False,
     "enable_llm_smoothing": False,
-    "model_selection": MODEL_OPTIONS[0],
-    "show_latency": False,
     "corner": DEFAULT_CORNER,
+    "show_miniplayer": True,
 }

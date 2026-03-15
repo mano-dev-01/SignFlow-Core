@@ -35,11 +35,10 @@ from overlay_constants import (
     PANEL_SPACING,
     PRIMARY_BOX_SIZE_MAX,
     PRIMARY_BOX_SIZE_MIN,
-    SECONDARY_EXPANDED_HEIGHT,
     STATUS_UPDATE_INTERVAL_MS,
 )
 from overlay_hand_tracking import HandTrackingWorker
-from overlay_panels import PrimaryPanel, SecondaryPanel
+from overlay_panels import AdvancedPanel, PrimaryPanel, SecondaryPanel
 from overlay_preferences import _read_json, _sanitize_settings, save_user_preferences
 from overlay_preview import PreviewWindow
 from overlay_selection import HighlightOverlay, RegionSelectionOverlay
@@ -64,14 +63,14 @@ class OverlayWindow(QWidget):
         self.applied_caption_box_size = self.preferences["caption_box_size"]
         self.pending_caption_box_size = self.preferences["caption_box_size"]
         self.overlay_opacity = self.preferences["opacity_percent"] / 100.0
-        self.show_raw_tokens = self.preferences["show_raw_tokens"]
         self.freeze_on_detection_loss = self.preferences["freeze_on_detection_loss"]
         self.enable_llm_smoothing = self.preferences["enable_llm_smoothing"]
-        self.model_selection = self.preferences["model_selection"]
-        self.show_latency = self.preferences["show_latency"]
         self.corner = self.preferences["corner"]
+        self.show_miniplayer = self.preferences["show_miniplayer"]
         self.secondary_expanded = False
         self.secondary_current_height = 0
+        self.advanced_expanded = False
+        self.advanced_current_height = 0
 
         self.capture_state = {"region": None, "paused": False}
         self.capture_thread = None
@@ -108,16 +107,27 @@ class OverlayWindow(QWidget):
 
         self.primary_panel = PrimaryPanel()
         self.secondary_panel = SecondaryPanel()
+        self.advanced_panel = AdvancedPanel()
 
         self.inter_panel_spacer = QWidget()
         self.inter_panel_spacer.setFixedHeight(0)
         self.inter_panel_spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+        self.advanced_panel_spacer = QWidget()
+        self.advanced_panel_spacer.setFixedHeight(0)
+        self.advanced_panel_spacer.setAttribute(Qt.WA_TransparentForMouseEvents, True)
 
         self.secondary_animation = QVariantAnimation(self)
         self.secondary_animation.setDuration(ANIMATION_DURATION_MS)
         self.secondary_animation.setEasingCurve(QEasingCurve.InOutCubic)
         self.secondary_animation.valueChanged.connect(self.on_secondary_animation_value)
         self.secondary_animation.finished.connect(self.on_secondary_animation_finished)
+
+        self.advanced_animation = QVariantAnimation(self)
+        self.advanced_animation.setDuration(ANIMATION_DURATION_MS)
+        self.advanced_animation.setEasingCurve(QEasingCurve.InOutCubic)
+        self.advanced_animation.valueChanged.connect(self.on_advanced_animation_value)
+        self.advanced_animation.finished.connect(self.on_advanced_animation_finished)
 
         self._rebuild_stack()
         self._connect_signals()
@@ -140,32 +150,30 @@ class OverlayWindow(QWidget):
     def _write_preferences(self):
         self.preferences["caption_box_size"] = self.pending_caption_box_size
         self.preferences["opacity_percent"] = int(round(self.overlay_opacity * 100))
-        self.preferences["show_raw_tokens"] = self.show_raw_tokens
         self.preferences["freeze_on_detection_loss"] = self.freeze_on_detection_loss
         self.preferences["enable_llm_smoothing"] = self.enable_llm_smoothing
-        self.preferences["model_selection"] = self.model_selection
-        self.preferences["show_latency"] = self.show_latency
         self.preferences["corner"] = self.corner
+        self.preferences["show_miniplayer"] = self.show_miniplayer
         save_user_preferences(self.preferences)
 
     def _connect_signals(self):
         self.primary_panel.toggle_requested.connect(self.toggle_secondary_panel)
         self.primary_panel.quit_requested.connect(QApplication.instance().quit)
 
-        self.secondary_panel.caption_box_size_slider.valueChanged.connect(self.on_caption_box_size_changed)
-        self.secondary_panel.opacity_slider.valueChanged.connect(self.on_opacity_changed)
-        self.secondary_panel.show_raw_tokens_checkbox.toggled.connect(self.on_show_raw_tokens_toggled)
-        self.secondary_panel.freeze_on_loss_checkbox.toggled.connect(self.on_freeze_on_loss_toggled)
-        self.secondary_panel.enable_llm_checkbox.toggled.connect(self.on_enable_llm_toggled)
-        self.secondary_panel.model_combo.currentTextChanged.connect(self.on_model_changed)
-        self.secondary_panel.show_latency_checkbox.toggled.connect(self.on_show_latency_toggled)
-        self.secondary_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
-        self.secondary_panel.freeze_on_loss_checkbox.toggled.connect(self.on_show_model_status_toggled)
-        self.secondary_panel.restart_button.clicked.connect(self.on_restart_requested)
-        self.secondary_panel.reset_preferences_button.clicked.connect(self.on_reset_preferences_requested)
         self.secondary_panel.crop_clicked.connect(self.on_fullscreen_capture)
         self.secondary_panel.play_pause_toggled.connect(self.on_play_pause_toggled)
         self.secondary_panel.clear_clicked.connect(self.on_crop_clicked)
+        self.secondary_panel.advanced_toggled.connect(self.on_advanced_toggle_requested)
+
+        self.advanced_panel.caption_box_size_slider.valueChanged.connect(self.on_caption_box_size_changed)
+        self.advanced_panel.opacity_slider.valueChanged.connect(self.on_opacity_changed)
+        self.advanced_panel.disable_llm_checkbox.toggled.connect(self.on_disable_llm_toggled)
+        self.advanced_panel.show_miniplayer_checkbox.toggled.connect(self.on_show_miniplayer_toggled)
+        self.advanced_panel.show_model_status_checkbox.toggled.connect(self.on_freeze_on_loss_toggled)
+        self.advanced_panel.show_model_status_checkbox.toggled.connect(self.on_show_model_status_toggled)
+        self.advanced_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
+        self.advanced_panel.restart_button.clicked.connect(self.on_restart_requested)
+        self.advanced_panel.reset_preferences_button.clicked.connect(self.on_reset_preferences_requested)
 
     def _rebuild_stack(self):
         while self.root_layout.count():
@@ -176,6 +184,8 @@ class OverlayWindow(QWidget):
 
         if self.corner in (CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT):
             self.root_layout.addStretch(1)
+            self.root_layout.addWidget(self.advanced_panel)
+            self.root_layout.addWidget(self.advanced_panel_spacer)
             self.root_layout.addWidget(self.secondary_panel)
             self.root_layout.addWidget(self.inter_panel_spacer)
             self.root_layout.addWidget(self.primary_panel)
@@ -183,6 +193,8 @@ class OverlayWindow(QWidget):
             self.root_layout.addWidget(self.primary_panel)
             self.root_layout.addWidget(self.inter_panel_spacer)
             self.root_layout.addWidget(self.secondary_panel)
+            self.root_layout.addWidget(self.advanced_panel_spacer)
+            self.root_layout.addWidget(self.advanced_panel)
             self.root_layout.addStretch(1)
 
     def _screen_geometry(self):
@@ -197,15 +209,32 @@ class OverlayWindow(QWidget):
             return h
         return self.primary_panel.sizeHint().height()
 
+    def _secondary_expanded_height(self):
+        return self.secondary_panel.expanded_height()
+
+    def _advanced_expanded_height(self):
+        return self.advanced_panel.expanded_height()
+
     def _full_window_height(self):
-        return (OUTER_PADDING * 2) + self._primary_height() + PANEL_SPACING + SECONDARY_EXPANDED_HEIGHT
+        return (
+            (OUTER_PADDING * 2)
+            + self._primary_height()
+            + PANEL_SPACING
+            + self._secondary_expanded_height()
+            + PANEL_SPACING
+            + self._advanced_expanded_height()
+        )
 
     def _visible_stack_height(self):
-        extra = PANEL_SPACING + self.secondary_current_height if self.secondary_current_height > 0 else 0
-        return (OUTER_PADDING * 2) + self._primary_height() + extra
+        height = (OUTER_PADDING * 2) + self._primary_height()
+        if self.secondary_current_height > 0:
+            height += PANEL_SPACING + self.secondary_current_height
+            if self.advanced_current_height > 0:
+                height += PANEL_SPACING + self.advanced_current_height
+        return height
 
     def _set_secondary_height(self, height: int, force_hide: bool = False):
-        clamped = max(0, min(SECONDARY_EXPANDED_HEIGHT, int(height)))
+        clamped = max(0, min(self._secondary_expanded_height(), int(height)))
         self.secondary_current_height = clamped
         self.inter_panel_spacer.setFixedHeight(PANEL_SPACING if clamped > 0 else 0)
         self.secondary_panel.setFixedHeight(clamped)
@@ -214,6 +243,17 @@ class OverlayWindow(QWidget):
             self.secondary_panel.hide()
         else:
             self.secondary_panel.show()
+
+    def _set_advanced_height(self, height: int, force_hide: bool = False):
+        clamped = max(0, min(self._advanced_expanded_height(), int(height)))
+        self.advanced_current_height = clamped
+        self.advanced_panel_spacer.setFixedHeight(PANEL_SPACING if clamped > 0 else 0)
+        self.advanced_panel.setFixedHeight(clamped)
+
+        if force_hide or clamped == 0:
+            self.advanced_panel.hide()
+        else:
+            self.advanced_panel.show()
 
     def _update_mask(self):
         visible_height = max(1, min(self._visible_stack_height(), self.height()))
@@ -251,16 +291,19 @@ class OverlayWindow(QWidget):
         self.primary_panel.set_caption_box_size(self.applied_caption_box_size)
         self.setWindowOpacity(self.overlay_opacity)
 
-        self.secondary_panel.caption_box_size_slider.setValue(self.pending_caption_box_size)
-        self.secondary_panel.opacity_slider.setValue(int(round(self.overlay_opacity * 100)))
-        self.secondary_panel.show_raw_tokens_checkbox.setChecked(self.show_raw_tokens)
-        self.secondary_panel.freeze_on_loss_checkbox.setChecked(self.freeze_on_detection_loss)
-        self.secondary_panel.enable_llm_checkbox.setChecked(self.enable_llm_smoothing)
-        self.secondary_panel.model_combo.setCurrentText(self.model_selection)
-        self.secondary_panel.show_latency_checkbox.setChecked(self.show_latency)
-        self.secondary_panel.corner_combo.setCurrentText(self.corner)
-        self.secondary_panel.set_status_active(False)
+        self.advanced_panel.caption_box_size_slider.setValue(self.pending_caption_box_size)
+        self.advanced_panel.opacity_slider.setValue(int(round(self.overlay_opacity * 100)))
+        self.advanced_panel.disable_llm_checkbox.setChecked(not self.enable_llm_smoothing)
+        self.advanced_panel.show_miniplayer_checkbox.setChecked(self.show_miniplayer)
+        self.advanced_panel.show_model_status_checkbox.setChecked(self.freeze_on_detection_loss)
+        self.advanced_panel.corner_combo.setCurrentText(self.corner)
+        self.advanced_panel.set_status_active(False)
 
+        self._sync_model_status_availability()
+        self.secondary_panel.set_advanced_expanded(False)
+        self.secondary_expanded = False
+        self.advanced_expanded = False
+        self._set_advanced_height(0, force_hide=True)
         self._set_secondary_height(0, force_hide=True)
         self._refresh_window_geometry(reposition=True)
 
@@ -273,6 +316,15 @@ class OverlayWindow(QWidget):
             self._set_secondary_height(0, force_hide=True)
             self._update_mask()
 
+    def on_advanced_animation_value(self, value):
+        self._set_advanced_height(int(value), force_hide=False)
+        self._update_mask()
+
+    def on_advanced_animation_finished(self):
+        if not self.advanced_expanded:
+            self._set_advanced_height(0, force_hide=True)
+            self._update_mask()
+
     def on_caption_box_size_changed(self, value: int):
         self.pending_caption_box_size = max(PRIMARY_BOX_SIZE_MIN, min(PRIMARY_BOX_SIZE_MAX, int(value)))
         self._write_preferences()
@@ -283,25 +335,33 @@ class OverlayWindow(QWidget):
         self.setWindowOpacity(self.overlay_opacity)
         self._write_preferences()
 
-    def on_show_raw_tokens_toggled(self, checked: bool):
-        self.show_raw_tokens = checked
-        self._write_preferences()
-
     def on_freeze_on_loss_toggled(self, checked: bool):
         self.freeze_on_detection_loss = checked
         self._write_preferences()
 
-    def on_enable_llm_toggled(self, checked: bool):
-        self.enable_llm_smoothing = checked
+    def on_disable_llm_toggled(self, checked: bool):
+        self.enable_llm_smoothing = not checked
         self._write_preferences()
 
-    def on_model_changed(self, text: str):
-        self.model_selection = text
+    def on_show_miniplayer_toggled(self, checked: bool):
+        self.show_miniplayer = bool(checked)
+        if not self.show_miniplayer:
+            if self.advanced_panel.show_model_status_checkbox.isChecked():
+                self.advanced_panel.show_model_status_checkbox.setChecked(False)
+            self.status_timer.stop()
+            if self.preview_window is not None:
+                self.preview_window.close()
+                self.preview_window = None
+        elif self.capture_state and self.capture_state.get("region"):
+            self._ensure_preview_window()
+        self._sync_model_status_availability()
         self._write_preferences()
 
-    def on_show_latency_toggled(self, checked: bool):
-        self.show_latency = checked
-        self._write_preferences()
+    def _sync_model_status_availability(self):
+        enabled = bool(self.show_miniplayer)
+        self.advanced_panel.show_model_status_checkbox.setEnabled(enabled)
+        if not enabled and self.advanced_panel.show_model_status_checkbox.isChecked():
+            self.advanced_panel.show_model_status_checkbox.setChecked(False)
 
     def on_corner_changed(self, text: str):
         self.corner = text
@@ -309,8 +369,33 @@ class OverlayWindow(QWidget):
         self._refresh_window_geometry(reposition=True)
         self._write_preferences()
 
+    def on_advanced_toggle_requested(self, expanded: bool):
+        if not self.secondary_expanded:
+            self.secondary_panel.set_advanced_expanded(False)
+            return
+        if ENABLE_COLLAPSE_ANIMATION and self.advanced_animation.state() == QAbstractAnimation.Running:
+            self.secondary_panel.set_advanced_expanded(self.advanced_expanded)
+            return
+
+        self.advanced_expanded = bool(expanded)
+        target = self._advanced_expanded_height() if self.advanced_expanded else 0
+
+        if not ENABLE_COLLAPSE_ANIMATION:
+            self._set_advanced_height(target, force_hide=not self.advanced_expanded)
+            self._update_mask()
+            return
+
+        self.advanced_animation.stop()
+        self.advanced_animation.setStartValue(self.advanced_current_height)
+        self.advanced_animation.setEndValue(target)
+        self.advanced_animation.start()
+
     def on_show_model_status_toggled(self, checked: bool):
+        if not self.show_miniplayer:
+            self.status_timer.stop()
+            return
         if self.preview_window is None:
+            self.status_timer.stop()
             return
         self.preview_window.set_status_visible(checked)
         if checked:
@@ -459,7 +544,7 @@ class OverlayWindow(QWidget):
         self._stop_capture_thread()
         self.capture_state["paused"] = False
         self.secondary_panel.set_playing(True)
-        self.secondary_panel.set_status_active(True)
+        self.advanced_panel.set_status_active(True)
         self._ensure_preview_window()
         if self.preview_window is not None:
             self.preview_window.set_capture_state("LIVE")
@@ -487,14 +572,22 @@ class OverlayWindow(QWidget):
             self._preview_timer.stop()
 
     def _ensure_preview_window(self):
+        if not self.show_miniplayer:
+            if self.preview_window is not None:
+                self.preview_window.close()
+                self.preview_window = None
+            self.status_timer.stop()
+            return
         if self.preview_window is None:
             self.preview_window = PreviewWindow()
-        self.preview_window.set_status_visible(self.secondary_panel.freeze_on_loss_checkbox.isChecked())
+        self.preview_window.set_status_visible(self.advanced_panel.show_model_status_checkbox.isChecked())
         self.preview_window.set_capture_state(self._current_system_state())
         self.preview_window.set_region_info(self.capture_state.get("region"), self.first_launch_hint)
         if self.preview_window._status_visible:
             self._update_status_panel()
             self.status_timer.start()
+        else:
+            self.status_timer.stop()
         self.preview_window.show()
         self.preview_window.raise_()
 
@@ -577,12 +670,12 @@ class OverlayWindow(QWidget):
             self.capture_state = {"region": None, "paused": not _is_playing}
         else:
             self.capture_state["paused"] = not _is_playing
-        self.secondary_panel.set_status_active(bool(_is_playing))
+        self.advanced_panel.set_status_active(bool(_is_playing))
         if self.preview_window is not None:
             self.preview_window.set_capture_state("LIVE" if _is_playing else "PAUSED")
 
     def on_clear_clicked(self):
-        self.secondary_panel.set_status_active(False)
+        self.advanced_panel.set_status_active(False)
         self.capture_state = {"region": None, "paused": False}
         if self.preview_window is not None:
             self.preview_window.set_capture_state("IDLE")
@@ -624,7 +717,15 @@ class OverlayWindow(QWidget):
         self.secondary_expanded = not self.secondary_expanded
         self.primary_panel.set_expanded_icon(self.secondary_expanded)
 
-        target = SECONDARY_EXPANDED_HEIGHT if self.secondary_expanded else 0
+        if not self.secondary_expanded and self.advanced_expanded:
+            self.advanced_expanded = False
+            self.secondary_panel.set_advanced_expanded(False)
+            if self.advanced_animation.state() == QAbstractAnimation.Running:
+                self.advanced_animation.stop()
+            self._set_advanced_height(0, force_hide=True)
+            self._update_mask()
+
+        target = self._secondary_expanded_height() if self.secondary_expanded else 0
 
         if not ENABLE_COLLAPSE_ANIMATION:
             self.secondary_animation.stop()

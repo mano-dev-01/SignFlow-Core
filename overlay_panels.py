@@ -28,7 +28,6 @@ from overlay_constants import (
     LABEL_DEFAULT_TEXT,
     MAX_OPACITY_PERCENT,
     MIN_OPACITY_PERCENT,
-    MODEL_OPTIONS,
     OUTER_PADDING,
     OVERLAY_WIDTH,
     PRIMARY_BG,
@@ -224,18 +223,144 @@ class ThemedComboBox(QComboBox):
         painter.end()
 
 
+def _panel_styles(panel_name: str):
+    return f"""
+        QFrame#{panel_name} {{
+            background-color: {SECONDARY_BG};
+            border: 1px solid {BORDER_COLOR};
+            border-radius: {RADIUS}px;
+        }}
+        QFrame#secondaryDivider {{
+            border: none;
+            min-height: 1px;
+            max-height: 1px;
+            background-color: rgba(255, 255, 255, 30);
+        }}
+        QLabel, QCheckBox {{
+            color: {TEXT_COLOR};
+            font: 500 {SECONDARY_LABEL_FONT_SIZE}px '{FONT_FAMILY}';
+        }}
+        QCheckBox {{
+            min-height: {SECONDARY_CHECKBOX_MIN_HEIGHT}px;
+            spacing: 10px;
+        }}
+        QComboBox {{
+            background-color: rgba(255, 255, 255, 24);
+            color: {TEXT_COLOR};
+            border: 1px solid {BORDER_COLOR};
+            border-radius: 6px;
+            padding: 6px 10px;
+            padding-right: 28px;
+            min-height: {SECONDARY_CONTROL_MIN_HEIGHT}px;
+            font: 500 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
+        }}
+        QComboBox::drop-down {{
+            subcontrol-origin: padding;
+            subcontrol-position: top right;
+            width: {SECONDARY_DROPDOWN_WIDTH}px;
+            border: none;
+            border-left: 1px solid {BORDER_COLOR};
+            background: transparent;
+            border-top-right-radius: 6px;
+            border-bottom-right-radius: 6px;
+        }}
+        QComboBox::down-arrow {{
+            image: none;
+            width: 0px;
+            height: 0px;
+            border: none;
+            margin: 0px;
+        }}
+        QComboBox QAbstractItemView {{
+            background-color: rgba(40, 40, 43, 240);
+            color: {TEXT_COLOR};
+            border: 1px solid {BORDER_COLOR};
+            selection-background-color: rgba(255, 255, 255, 46);
+            selection-color: {TEXT_COLOR};
+            outline: 0;
+            padding: 6px;
+            font: 500 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
+        }}
+        QSlider::groove:horizontal {{
+            border: none;
+            height: {SECONDARY_SLIDER_GROOVE_HEIGHT}px;
+            background: rgba(255, 255, 255, 36);
+            border-radius: 3px;
+        }}
+        QSlider::handle:horizontal {{
+            background: rgba(255, 255, 255, 180);
+            border: none;
+            width: {SECONDARY_SLIDER_HANDLE_SIZE}px;
+            margin: -5px 0;
+            border-radius: 8px;
+        }}
+        QPushButton#restartButton {{
+            background-color: {BUTTON_BG};
+            border: 1px solid {BORDER_COLOR};
+            border-radius: 8px;
+            color: {TEXT_COLOR};
+            font: 600 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
+            padding: 4px 10px;
+        }}
+        QPushButton#restartButton:hover {{
+            background-color: {BUTTON_HOVER_BG};
+        }}
+        QPushButton#actionButton {{
+            background-color: {BUTTON_BG};
+            border: 1px solid {BORDER_COLOR};
+            border-radius: 7px;
+            color: {TEXT_COLOR};
+            font: 600 18px '{FONT_FAMILY}';
+        }}
+        QPushButton#actionButton:hover {{
+            background-color: {BUTTON_HOVER_BG};
+        }}
+        QPushButton#actionButton:focus {{
+            outline: none;
+            border: 1px solid {BORDER_COLOR};
+        }}
+        QPushButton#actionToggleButton {{
+            background-color: {BUTTON_BG};
+            border: 1px solid {BORDER_COLOR};
+            border-radius: 7px;
+            color: {TEXT_COLOR};
+            font: 600 18px '{FONT_FAMILY}';
+        }}
+        QPushButton#actionToggleButton:hover {{
+            background-color: {BUTTON_HOVER_BG};
+        }}
+        QPushButton#actionToggleButton:pressed {{
+            background-color: rgba(255, 255, 255, 38);
+            border: 1px solid {BORDER_COLOR};
+        }}
+        QPushButton#actionToggleButton:focus {{
+            outline: none;
+            border: 1px solid {BORDER_COLOR};
+        }}
+        QLabel#actionStatus {{
+            color: {TEXT_COLOR};
+            background: rgba(255, 255, 255, 10);
+            border: 1px solid {BORDER_COLOR};
+            border-radius: 7px;
+            padding: 0 10px;
+            font: 600 13px '{FONT_FAMILY}';
+        }}
+        """
+
+
 class SecondaryPanel(QFrame):
     crop_clicked = pyqtSignal()
     play_pause_toggled = pyqtSignal(bool)
     clear_clicked = pyqtSignal()
+    advanced_toggled = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
         self.setObjectName("secondaryPanel")
         self.setFixedWidth(OVERLAY_WIDTH)
-        self.setFixedHeight(0)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._is_playing = False
+        self._expanded_height = 0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
@@ -250,6 +375,7 @@ class SecondaryPanel(QFrame):
         self.crop_button.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
         self.crop_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.crop_button.setFocusPolicy(Qt.NoFocus)
+        self.crop_button.setToolTip("Full Screen Capture")
         self.crop_button.clicked.connect(self.crop_clicked.emit)
 
 
@@ -259,6 +385,7 @@ class SecondaryPanel(QFrame):
         self.play_pause_button.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
         self.play_pause_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.play_pause_button.setFocusPolicy(Qt.NoFocus)
+        self.play_pause_button.setToolTip("Pause / Play")
         self.play_pause_button.clicked.connect(self._toggle_play_pause)
 
         self.clear_button = QPushButton("")
@@ -267,6 +394,7 @@ class SecondaryPanel(QFrame):
         self.clear_button.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
         self.clear_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.clear_button.setFocusPolicy(Qt.NoFocus)
+        self.clear_button.setToolTip("Region Based Capture")
         self.clear_button.clicked.connect(self.clear_clicked.emit)
 
         self._set_action_icon_sizes()
@@ -274,208 +402,41 @@ class SecondaryPanel(QFrame):
         self.clear_button.setIcon(self._build_region_icon(SECONDARY_ACTION_ICON_SIZE))
         self._apply_play_pause_icon()
 
-        self._status_active = False
-        self.status_indicator = QLabel()
-        self._apply_status_indicator()
-
-        self.status_indicator.setObjectName("actionStatus")
-        self.status_indicator.setAlignment(Qt.AlignCenter)
-        self.status_indicator.setTextFormat(Qt.RichText)
-        self.status_indicator.setMinimumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.status_indicator.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.status_indicator.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-
         action_row.addWidget(self.crop_button, 1)
         action_row.addWidget(self.play_pause_button, 1)
         action_row.addWidget(self.clear_button, 1)
-        action_row.addWidget(self.status_indicator, 3)
 
         action_divider = QFrame()
         action_divider.setObjectName("secondaryDivider")
         action_divider.setFrameShape(QFrame.HLine)
         action_divider.setFrameShadow(QFrame.Plain)
 
-        columns_row = QHBoxLayout()
-        columns_row.setSpacing(SECONDARY_INNER_SPACING)
-
-        left_col = QVBoxLayout()
-        left_col.setSpacing(SECONDARY_COLUMN_SPACING)
-
-        right_col = QVBoxLayout()
-        right_col.setSpacing(SECONDARY_COLUMN_SPACING)
-
-        self.caption_box_size_slider = QSlider(Qt.Horizontal)
-        self.caption_box_size_slider.setRange(PRIMARY_BOX_SIZE_MIN, PRIMARY_BOX_SIZE_MAX)
-
-        self.opacity_slider = QSlider(Qt.Horizontal)
-        self.opacity_slider.setRange(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT)
-
-        self.show_raw_tokens_checkbox = ThemedCheckBox("Show raw tokens")
-        self.freeze_on_loss_checkbox = ThemedCheckBox("Show model status")
-
-        self.restart_button = QPushButton("Restart")
-        self.restart_button.setObjectName("restartButton")
-        self.restart_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
-
-        self.enable_llm_checkbox = ThemedCheckBox("Enable LLM smoothing")
-
-        self.model_combo = ThemedComboBox()
-        self.model_combo.addItems(MODEL_OPTIONS)
-
-        self.show_latency_checkbox = ThemedCheckBox("Show latency")
-
-        self.corner_combo = ThemedComboBox()
-        self.corner_combo.addItems(CORNER_OPTIONS)
-
-        self.reset_preferences_button = QPushButton("Reset Preferences To Default")
-        self.reset_preferences_button.setObjectName("restartButton")
-        self.reset_preferences_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
-
-        left_col.addLayout(self._labeled_row("Caption box size", self.caption_box_size_slider))
-        left_col.addLayout(self._labeled_row("Overlay opacity", self.opacity_slider))
-        left_col.addWidget(self.show_raw_tokens_checkbox)
-        left_col.addWidget(self.freeze_on_loss_checkbox)
-        left_col.addWidget(self.restart_button)
-        left_col.addStretch(1)
-
-        right_col.addWidget(self.enable_llm_checkbox)
-        right_col.addLayout(self._labeled_row("Model selection", self.model_combo))
-        right_col.addWidget(self.show_latency_checkbox)
-        right_col.addLayout(self._labeled_row("Overlay corner", self.corner_combo))
-        right_col.addStretch(1)
-
-        columns_row.addLayout(left_col, 1)
-        columns_row.addLayout(right_col, 1)
+        self.show_advanced_button = QPushButton("Show Advanced")
+        self.show_advanced_button.setObjectName("restartButton")
+        self.show_advanced_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
+        self.show_advanced_button.setCheckable(True)
+        self.show_advanced_button.toggled.connect(self._on_advanced_toggled)
 
         root.addLayout(action_row)
         root.addWidget(action_divider)
-        root.addLayout(columns_row)
-        root.addWidget(self.reset_preferences_button)
+        root.addWidget(self.show_advanced_button)
 
-        self.setStyleSheet(
-            f"""
-            QFrame#secondaryPanel {{
-                background-color: {SECONDARY_BG};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: {RADIUS}px;
-            }}
-            QFrame#secondaryDivider {{
-                border: none;
-                min-height: 1px;
-                max-height: 1px;
-                background-color: rgba(255, 255, 255, 30);
-            }}
-            QLabel, QCheckBox {{
-                color: {TEXT_COLOR};
-                font: 500 {SECONDARY_LABEL_FONT_SIZE}px '{FONT_FAMILY}';
-            }}
-            QCheckBox {{
-                min-height: {SECONDARY_CHECKBOX_MIN_HEIGHT}px;
-                spacing: 10px;
-            }}
-            QComboBox {{
-                background-color: rgba(255, 255, 255, 24);
-                color: {TEXT_COLOR};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 6px;
-                padding: 6px 10px;
-                padding-right: 28px;
-                min-height: {SECONDARY_CONTROL_MIN_HEIGHT}px;
-                font: 500 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
-            }}
-            QComboBox::drop-down {{
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: {SECONDARY_DROPDOWN_WIDTH}px;
-                border: none;
-                border-left: 1px solid {BORDER_COLOR};
-                background: transparent;
-                border-top-right-radius: 6px;
-                border-bottom-right-radius: 6px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                width: 0px;
-                height: 0px;
-                border: none;
-                margin: 0px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: rgba(40, 40, 43, 240);
-                color: {TEXT_COLOR};
-                border: 1px solid {BORDER_COLOR};
-                selection-background-color: rgba(255, 255, 255, 46);
-                selection-color: {TEXT_COLOR};
-                outline: 0;
-                padding: 6px;
-                font: 500 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
-            }}
-            QSlider::groove:horizontal {{
-                border: none;
-                height: {SECONDARY_SLIDER_GROOVE_HEIGHT}px;
-                background: rgba(255, 255, 255, 36);
-                border-radius: 3px;
-            }}
-            QSlider::handle:horizontal {{
-                background: rgba(255, 255, 255, 180);
-                border: none;
-                width: {SECONDARY_SLIDER_HANDLE_SIZE}px;
-                margin: -5px 0;
-                border-radius: 8px;
-            }}
-            QPushButton#restartButton {{
-                background-color: {BUTTON_BG};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 8px;
-                color: {TEXT_COLOR};
-                font: 600 {SECONDARY_CONTROL_FONT_SIZE}px '{FONT_FAMILY}';
-                padding: 4px 10px;
-            }}
-            QPushButton#restartButton:hover {{
-                background-color: {BUTTON_HOVER_BG};
-            }}
-            QPushButton#actionButton {{
-                background-color: {BUTTON_BG};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 7px;
-                color: {TEXT_COLOR};
-                font: 600 18px '{FONT_FAMILY}';
-            }}
-            QPushButton#actionButton:hover {{
-                background-color: {BUTTON_HOVER_BG};
-            }}
-            QPushButton#actionButton:focus {{
-                outline: none;
-                border: 1px solid {BORDER_COLOR};
-            }}
-            QPushButton#actionToggleButton {{
-                background-color: {BUTTON_BG};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 7px;
-                color: {TEXT_COLOR};
-                font: 600 18px '{FONT_FAMILY}';
-            }}
-            QPushButton#actionToggleButton:hover {{
-                background-color: {BUTTON_HOVER_BG};
-            }}
-            QPushButton#actionToggleButton:pressed {{
-                background-color: rgba(255, 255, 255, 38);
-                border: 1px solid {BORDER_COLOR};
-            }}
-            QPushButton#actionToggleButton:focus {{
-                outline: none;
-                border: 1px solid {BORDER_COLOR};
-            }}
-            QLabel#actionStatus {{
-                color: {TEXT_COLOR};
-                background: rgba(255, 255, 255, 10);
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 7px;
-                padding: 0 10px;
-                font: 600 13px '{FONT_FAMILY}';
-            }}
-            """
-        )
+        self.setStyleSheet(_panel_styles("secondaryPanel"))
+        self._expanded_height = self.sizeHint().height()
+        self.setFixedHeight(0)
+
+    def expanded_height(self):
+        if self._expanded_height <= 0:
+            self._expanded_height = self.sizeHint().height()
+        return self._expanded_height
+
+    def set_advanced_expanded(self, expanded: bool):
+        blocked = self.show_advanced_button.blockSignals(True)
+        self.show_advanced_button.setChecked(bool(expanded))
+        self.show_advanced_button.blockSignals(blocked)
+
+    def _on_advanced_toggled(self, checked: bool):
+        self.advanced_toggled.emit(bool(checked))
 
     @staticmethod
     def _labeled_row(title: str, widget: QWidget):
@@ -586,6 +547,107 @@ class SecondaryPanel(QFrame):
         self._is_playing = bool(is_playing)
         self._apply_play_pause_icon()
 
+    def _apply_play_pause_icon(self):
+        if self._is_playing:
+            self.play_pause_button.setIcon(self._build_pause_icon(SECONDARY_ACTION_ICON_SIZE))
+        else:
+            self.play_pause_button.setIcon(self._build_play_icon(SECONDARY_ACTION_ICON_SIZE))
+
+    def _toggle_play_pause(self):
+        self._is_playing = not self._is_playing
+        self._apply_play_pause_icon()
+        self.play_pause_toggled.emit(self._is_playing)
+
+
+class AdvancedPanel(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("advancedPanel")
+        self.setFixedWidth(OVERLAY_WIDTH)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._status_active = False
+        self._expanded_height = 0
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
+        root.setSpacing(SECONDARY_COLUMN_SPACING)
+
+        columns_row = QHBoxLayout()
+        columns_row.setSpacing(SECONDARY_INNER_SPACING)
+
+        left_col = QVBoxLayout()
+        left_col.setSpacing(SECONDARY_COLUMN_SPACING)
+
+        right_col = QVBoxLayout()
+        right_col.setSpacing(SECONDARY_COLUMN_SPACING)
+
+        self.caption_box_size_slider = QSlider(Qt.Horizontal)
+        self.caption_box_size_slider.setRange(PRIMARY_BOX_SIZE_MIN, PRIMARY_BOX_SIZE_MAX)
+
+        self.opacity_slider = QSlider(Qt.Horizontal)
+        self.opacity_slider.setRange(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT)
+
+        self.show_miniplayer_checkbox = ThemedCheckBox("Show miniplayer")
+        self.show_model_status_checkbox = ThemedCheckBox("Show model status")
+        self.disable_llm_checkbox = ThemedCheckBox("Disable LLM smoothing")
+
+        self.corner_combo = ThemedComboBox()
+        self.corner_combo.addItems(CORNER_OPTIONS)
+
+        self.status_indicator = QLabel()
+        self._apply_status_indicator()
+        self.status_indicator.setObjectName("actionStatus")
+        self.status_indicator.setAlignment(Qt.AlignCenter)
+        self.status_indicator.setTextFormat(Qt.RichText)
+        self.status_indicator.setMinimumHeight(SECONDARY_ACTION_BUTTON_SIZE)
+        self.status_indicator.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
+        self.status_indicator.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self.restart_button = QPushButton("Restart")
+        self.restart_button.setObjectName("restartButton")
+        self.restart_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
+
+        self.reset_preferences_button = QPushButton("Reset Preferences To Default")
+        self.reset_preferences_button.setObjectName("restartButton")
+        self.reset_preferences_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
+
+        left_col.addLayout(self._labeled_row("Caption box size", self.caption_box_size_slider))
+        left_col.addLayout(self._labeled_row("Caption box opacity", self.opacity_slider))
+        left_col.addLayout(self._labeled_row("Overlay corner", self.corner_combo))
+        left_col.addWidget(self.show_miniplayer_checkbox)
+        left_col.addWidget(self.show_model_status_checkbox)
+        left_col.addStretch(1)
+
+        right_col.addWidget(self.disable_llm_checkbox)
+        right_col.addLayout(self._labeled_row("Status", self.status_indicator))
+        right_col.addWidget(self.restart_button)
+        right_col.addStretch(1)
+
+        columns_row.addLayout(left_col, 1)
+        columns_row.addLayout(right_col, 1)
+
+        root.addLayout(columns_row)
+        root.addWidget(self.reset_preferences_button)
+
+        self.setStyleSheet(_panel_styles("advancedPanel"))
+        self._expanded_height = self.sizeHint().height()
+        self.setFixedHeight(0)
+
+    def expanded_height(self):
+        if self._expanded_height <= 0:
+            self._expanded_height = self.sizeHint().height()
+        return self._expanded_height
+
+    @staticmethod
+    def _labeled_row(title: str, widget: QWidget):
+        layout = QVBoxLayout()
+        layout.setSpacing(14 if isinstance(widget, QSlider) else 10)
+        label = QLabel(title)
+        label.setMinimumHeight(int(SECONDARY_LABEL_FONT_SIZE * 1.4))
+        layout.addWidget(label)
+        layout.addWidget(widget)
+        return layout
+
     def _apply_status_indicator(self):
         indicator_symbol = "●" if self._status_active else "○"
         indicator_state = "Active" if self._status_active else "Inactive"
@@ -598,14 +660,3 @@ class SecondaryPanel(QFrame):
     def set_status_active(self, active: bool):
         self._status_active = bool(active)
         self._apply_status_indicator()
-
-    def _apply_play_pause_icon(self):
-        if self._is_playing:
-            self.play_pause_button.setIcon(self._build_pause_icon(SECONDARY_ACTION_ICON_SIZE))
-        else:
-            self.play_pause_button.setIcon(self._build_play_icon(SECONDARY_ACTION_ICON_SIZE))
-
-    def _toggle_play_pause(self):
-        self._is_playing = not self._is_playing
-        self._apply_play_pause_icon()
-        self.play_pause_toggled.emit(self._is_playing)
