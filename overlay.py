@@ -1,5 +1,7 @@
+import os
 import random
 import sys
+import warnings
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtGui import QFontMetrics
@@ -15,6 +17,13 @@ from overlay_constants import (
 )
 from overlay_preferences import ensure_preferences_files
 from overlay_window import OverlayWindow
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("GLOG_minloglevel", "2")
+warnings.filterwarnings(
+    "ignore",
+    message=r"SymbolDatabase\\.GetPrototype\\(\\) is deprecated.*",
+)
 
 DEBUG_CAPTIONS = "--random" in sys.argv
 if DEBUG_CAPTIONS:
@@ -103,10 +112,12 @@ class CaptionSimulator:
         if self._word_index >= len(self._current_words):
             self._load_next_sentence()
 
+        emitted_word = None
         if self._word_index < len(self._current_words):
             word = self._current_words[self._word_index]
             self._word_index += 1
             self._append_word(word, max_chars)
+            emitted_word = word
 
         if self._word_index >= len(self._current_words):
             self._start_new_line = True
@@ -115,7 +126,18 @@ class CaptionSimulator:
             self._lines = self._lines[-max_lines:]
 
         text = "\n".join(line for line in self._lines if line is not None)
+        self._overlay._has_prediction = True
+        self._overlay._set_caption_mode()
         self._overlay.set_caption_text(text.strip() if text.strip() else " ")
+        if emitted_word and getattr(self._overlay, "caption_logger", None) is not None:
+            self._overlay.caption_logger.log_event(
+                tokens_predicted=[emitted_word],
+                raw_output=emitted_word,
+                smoothed_output=emitted_word,
+                prediction_latency_ms=0.0,
+                model_name="debug_random_generator",
+                llm_smoothing_enabled=False,
+            )
 
 
 def main():

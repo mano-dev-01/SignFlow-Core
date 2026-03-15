@@ -1,10 +1,12 @@
 {
   "caption_box_size": 110,
+  "caption_font_size": 15,
   "opacity_percent": 100,
+  "caption_lock_mode": false,
   "freeze_on_detection_loss": false,
   "enable_llm_smoothing": false,
   "corner": "Bottom Right",
   "show_miniplayer": true,
   "flip_input": true,
-  "primary_hand_only": true
+  "primary_hand_only": false
 }

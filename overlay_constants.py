@@ -57,6 +57,8 @@ BUTTON_HEIGHT = 32
 CAPTION_HORIZONTAL_PADDING = 12
 CAPTION_VERTICAL_PADDING = 8
 DEFAULT_FONT_SIZE = 14
+CAPTION_FONT_SIZE_MIN = 12
+CAPTION_FONT_SIZE_MAX = 24
 PRIMARY_BOX_SIZE_MIN = 90
 PRIMARY_BOX_SIZE_MAX = 260
 DEFAULT_PRIMARY_BOX_SIZE = 110
@@ -103,7 +105,9 @@ USER_PREFERENCES_PATH = PROJECT_DIR / "user_preferences.json"
 
 DEFAULT_SETTINGS = {
     "caption_box_size": DEFAULT_PRIMARY_BOX_SIZE,
+    "caption_font_size": DEFAULT_FONT_SIZE,
     "opacity_percent": int(DEFAULT_OPACITY * 100),
+    "caption_lock_mode": False,
     "freeze_on_detection_loss": False,
     "enable_llm_smoothing": False,
     "corner": DEFAULT_CORNER,

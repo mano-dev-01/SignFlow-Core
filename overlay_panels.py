@@ -25,6 +25,8 @@ from overlay_constants import (
     CAPTION_HORIZONTAL_PADDING,
     CAPTION_VERTICAL_PADDING,
     CORNER_OPTIONS,
+    CAPTION_FONT_SIZE_MAX,
+    CAPTION_FONT_SIZE_MIN,
     DEFAULT_FONT_SIZE,
     DEFAULT_PRIMARY_BOX_SIZE,
     FONT_FAMILY,
@@ -56,7 +58,6 @@ from overlay_constants import (
     BORDER_COLOR,
 )
 
-
 class PrimaryPanel(QFrame):
     toggle_requested = pyqtSignal()
     quit_requested = pyqtSignal()
@@ -76,6 +77,7 @@ class PrimaryPanel(QFrame):
         self.caption_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.caption_label.setTextFormat(Qt.RichText)
         self._caption_plain = LABEL_DEFAULT_TEXT
+        self._caption_mode = "caption"
 
         self.toggle_button = QPushButton("▾")
         self.toggle_button.setFixedSize(BUTTON_WIDTH, BUTTON_HEIGHT)
@@ -94,28 +96,35 @@ class PrimaryPanel(QFrame):
         root.addWidget(self.caption_label, 1)
         root.addLayout(right_buttons)
 
-        self.setStyleSheet(
-            f"""
-            QFrame#primaryPanel {{
-                background-color: {PRIMARY_BG};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: {RADIUS}px;
-            }}
-            QLabel {{
-                color: {TEXT_COLOR};
-            }}
-            QPushButton {{
-                background-color: {BUTTON_BG};
-                border: 1px solid {BORDER_COLOR};
-                border-radius: 8px;
-                color: {TEXT_COLOR};
-                font: 600 13px '{FONT_FAMILY}';
-            }}
-            QPushButton:hover {{
-                background-color: {BUTTON_HOVER_BG};
-            }}
-            """
+        self._base_stylesheet = (
+            "QFrame#primaryPanel {{"
+            f"background-color: {PRIMARY_BG};"
+            "border: 1px solid {border_color};"
+            f"border-radius: {RADIUS}px;"
+            "}}"
+            "QLabel {{"
+            f"color: {TEXT_COLOR};"
+            "}}"
+            "QPushButton {{"
+            f"background-color: {BUTTON_BG};"
+            f"border: 1px solid {BORDER_COLOR};"
+            "border-radius: 8px;"
+            f"color: {TEXT_COLOR};"
+            f"font: 600 13px '{FONT_FAMILY}';"
+            "}}"
+            "QPushButton:hover {{"
+            f"background-color: {BUTTON_HOVER_BG};"
+            "}}"
         )
+        self._apply_panel_style(BORDER_COLOR)
+
+    def set_caption_mode(self, mode: str):
+        mode = mode or "caption"
+        self._caption_mode = mode
+        if mode == "init":
+            self.caption_label.setStyleSheet("color: rgba(220, 220, 220, 190);")
+        else:
+            self.caption_label.setStyleSheet("")
 
     def set_caption_text(self, text: str):
         self._caption_plain = text or LABEL_DEFAULT_TEXT
@@ -123,7 +132,7 @@ class PrimaryPanel(QFrame):
         self._recompute_height()
 
     def set_caption_font_size(self, size: int):
-        self.caption_label.setFont(QFont(FONT_FAMILY, DEFAULT_FONT_SIZE))
+        self.caption_label.setFont(QFont(FONT_FAMILY, int(size)))
         self._recompute_height()
 
     def set_caption_box_size(self, size: int):
@@ -132,6 +141,9 @@ class PrimaryPanel(QFrame):
 
     def set_expanded_icon(self, expanded: bool):
         self.toggle_button.setText("▴" if expanded else "▾")
+
+    def _apply_panel_style(self, border_color: str):
+        self.setStyleSheet(self._base_stylesheet.format(border_color=border_color))
 
     def _recompute_height(self):
         width = self.caption_label.width()
@@ -158,8 +170,9 @@ class PrimaryPanel(QFrame):
         panel_height = max(auto_height, self.user_box_size)
         self.setFixedHeight(panel_height)
 
-    @staticmethod
-    def _format_caption(text: str):
+
+
+    def _format_caption(self, text: str):
         safe = text or ""
         parts = re.split(r"(\s+)", safe)
         last_word_index = None
@@ -177,11 +190,10 @@ class PrimaryPanel(QFrame):
                 rendered.append(chunk)
                 continue
             escaped = html.escape(part)
-            if last_word_index is not None and idx == last_word_index:
+            if self._caption_mode == "caption" and last_word_index is not None and idx == last_word_index:
                 escaped = f"<span style=\"font-weight:600;\">{escaped}</span>"
             rendered.append(escaped)
         return "".join(rendered)
-
 
 class ThemedCheckBox(QCheckBox):
     def __init__(self, text: str):
@@ -230,7 +242,6 @@ class ThemedCheckBox(QCheckBox):
         painter.setFont(self.font())
         painter.drawText(text_rect, Qt.AlignVCenter | Qt.AlignLeft, self.text())
 
-
 class ThemedComboBox(QComboBox):
     def paintEvent(self, event):
         super().paintEvent(event)
@@ -251,7 +262,6 @@ class ThemedComboBox(QComboBox):
         path.closeSubpath()
         painter.drawPath(path)
         painter.end()
-
 
 def _panel_styles(panel_name: str):
     return f"""
@@ -377,7 +387,6 @@ def _panel_styles(panel_name: str):
         }}
         """
 
-
 class SecondaryPanel(QFrame):
     crop_clicked = pyqtSignal()
     play_pause_toggled = pyqtSignal(bool)
@@ -407,7 +416,6 @@ class SecondaryPanel(QFrame):
         self.crop_button.setFocusPolicy(Qt.NoFocus)
         self.crop_button.setToolTip("Full Screen Capture")
         self.crop_button.clicked.connect(self.crop_clicked.emit)
-
 
         self.play_pause_button = QPushButton("")
         self.play_pause_button.setObjectName("actionToggleButton")
@@ -588,7 +596,6 @@ class SecondaryPanel(QFrame):
         self._apply_play_pause_icon()
         self.play_pause_toggled.emit(self._is_playing)
 
-
 class AdvancedPanel(QFrame):
     def __init__(self):
         super().__init__()
@@ -614,12 +621,16 @@ class AdvancedPanel(QFrame):
         self.caption_box_size_slider = QSlider(Qt.Horizontal)
         self.caption_box_size_slider.setRange(PRIMARY_BOX_SIZE_MIN, PRIMARY_BOX_SIZE_MAX)
 
+        self.caption_font_size_slider = QSlider(Qt.Horizontal)
+        self.caption_font_size_slider.setRange(CAPTION_FONT_SIZE_MIN, CAPTION_FONT_SIZE_MAX)
+
         self.opacity_slider = QSlider(Qt.Horizontal)
         self.opacity_slider.setRange(MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT)
 
         self.show_miniplayer_checkbox = ThemedCheckBox("Show miniplayer")
         self.show_model_status_checkbox = ThemedCheckBox("Show model status")
         self.disable_llm_checkbox = ThemedCheckBox("Disable LLM smoothing")
+        self.caption_lock_checkbox = ThemedCheckBox("Caption lock mode")
         self.flip_input_checkbox = ThemedCheckBox("Flip input")
         self.primary_hand_only_checkbox = ThemedCheckBox("Detect only one / primary hand")
 
@@ -644,6 +655,7 @@ class AdvancedPanel(QFrame):
         self.reset_preferences_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
 
         left_col.addLayout(self._labeled_row("Caption box size", self.caption_box_size_slider))
+        left_col.addLayout(self._labeled_row("Caption font size", self.caption_font_size_slider))
         left_col.addLayout(self._labeled_row("Caption box opacity", self.opacity_slider))
         left_col.addLayout(self._labeled_row("Overlay corner", self.corner_combo))
         left_col.addWidget(self.show_miniplayer_checkbox)
@@ -651,6 +663,7 @@ class AdvancedPanel(QFrame):
         left_col.addStretch(1)
 
         right_col.addWidget(self.disable_llm_checkbox)
+        right_col.addWidget(self.caption_lock_checkbox)
         right_col.addWidget(self.flip_input_checkbox)
         right_col.addWidget(self.primary_hand_only_checkbox)
         right_col.addLayout(self._labeled_row("Status", self.status_indicator))

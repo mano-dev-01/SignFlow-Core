@@ -80,6 +80,7 @@ class HandTracker:
         self._primary_hand_only = bool(primary_hand_only)
         self._initialized = False
         self._model = None
+        self._model_name = None
         self.last_features = None
         self.last_left_features = None
         self.last_right_features = None
@@ -115,8 +116,10 @@ class HandTracker:
             if model_path.exists():
                 try:
                     self._model = self._joblib.load(os.fspath(model_path))
+                    self._model_name = model_path.name
                 except Exception:
                     self._model = None
+                    self._model_name = None
 
         if self._mp is None:
             self.available = False
@@ -332,6 +335,7 @@ class HandTracker:
             "pad_y": pad_y,
             "flip": bool(flip_horizontal),
             "model_loaded": self._model is not None,
+            "model_name": self._model_name if self._model is not None else None,
             "hand_label": label or "Unknown",
             "processing_ms": processing_ms,
         }
