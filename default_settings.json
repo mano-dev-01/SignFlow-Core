@@ -4,5 +4,7 @@
   "freeze_on_detection_loss": false,
   "enable_llm_smoothing": false,
   "corner": "Bottom Right",
-  "show_miniplayer": true
+  "show_miniplayer": true,
+  "flip_input": true,
+  "primary_hand_only": true
 }

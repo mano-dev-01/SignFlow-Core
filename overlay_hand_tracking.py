@@ -1,3 +1,4 @@
+import importlib
 import os
 import threading
 import time
@@ -9,20 +10,12 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 from overlay_constants import SIGN_PREDICTION_MIN_CONFIDENCE
 
-try:
-    import joblib
-except Exception:  # pragma: no cover - allow runtime without joblib
-    joblib = None
 
-try:
-    import cv2
-except Exception:  # pragma: no cover - allow runtime without opencv
-    cv2 = None
-
-try:
-    import mediapipe as mp
-except Exception:  # pragma: no cover - allow runtime without mediapipe
-    mp = None
+def _safe_import(module_name: str):
+    try:
+        return importlib.import_module(module_name)
+    except Exception:  # pragma: no cover - allow runtime without optional deps
+        return None
 
 
 def normalize_landmarks(landmarks):
@@ -82,8 +75,10 @@ from overlay_constants import (
 
 
 class HandTracker:
-    def __init__(self):
-        self.available = mp is not None
+    def __init__(self, primary_hand_only: bool = True):
+        self.available = False
+        self._primary_hand_only = bool(primary_hand_only)
+        self._initialized = False
         self._model = None
         self.last_features = None
         self.last_left_features = None
@@ -95,37 +90,87 @@ class HandTracker:
             "prediction": "No Hand",
             "prediction_conf": 0.0,
         }
+        self._joblib = None
+        self._cv2 = None
+        self._mp = None
+        self._mp_hands = None
+        self._mp_draw = None
+        self._hands = None
+        self._landmark_pb2 = None
 
-        if not self.available:
-            self._hands = None
-            self._mp_draw = None
-            self._mp_hands = None
+    @property
+    def primary_hand_only(self):
+        return self._primary_hand_only
+
+    def initialize(self):
+        if self._initialized:
             return
+        self._initialized = True
+        self._joblib = _safe_import("joblib")
+        self._cv2 = _safe_import("cv2")
+        self._mp = _safe_import("mediapipe")
 
-        if joblib is not None:
+        if self._joblib is not None:
             model_path = Path(__file__).resolve().parent / "models" / "model.pkl"
             if model_path.exists():
                 try:
-                    self._model = joblib.load(os.fspath(model_path))
+                    self._model = self._joblib.load(os.fspath(model_path))
                 except Exception:
                     self._model = None
 
-        self._mp_hands = mp.solutions.hands
-        self._mp_draw = mp.solutions.drawing_utils
+        if self._mp is None:
+            self.available = False
+            return
+
+        self._mp_hands = self._mp.solutions.hands
+        self._mp_draw = self._mp.solutions.drawing_utils
         try:
             from mediapipe.framework.formats import landmark_pb2
         except Exception:
             landmark_pb2 = None
         self._landmark_pb2 = landmark_pb2
-        self._hands = self._mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=1,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7,
-        )
+        self._build_hands()
+
+    def _build_hands(self):
+        if self._mp_hands is None:
+            self.available = False
+            return
+        max_hands = 1 if self._primary_hand_only else 2
+        try:
+            self._hands = self._mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=max_hands,
+                min_detection_confidence=0.7,
+                min_tracking_confidence=0.7,
+            )
+            self.available = True
+        except Exception:
+            self._hands = None
+            self.available = False
+
+    def reconfigure(self, primary_hand_only: bool):
+        primary_hand_only = bool(primary_hand_only)
+        if primary_hand_only == self._primary_hand_only and self._hands is not None:
+            return
+        self._primary_hand_only = primary_hand_only
+        if not self._initialized:
+            return
+        self._close_hands()
+        self._build_hands()
+
+    def _close_hands(self):
+        if self._hands is not None:
+            try:
+                self._hands.close()
+            except Exception:
+                pass
+        self._hands = None
+
+    def close(self):
+        self._close_hands()
 
     def process(self, frame: dict, flip_horizontal: bool = False):
-        if not self.available or frame is None:
+        if not self.available or self._hands is None or frame is None:
             return frame, self.last_status
 
         rgb = frame.get("rgb")
@@ -145,7 +190,7 @@ class HandTracker:
         scale = 1.0
         pad_x = 0
         pad_y = 0
-        if ENABLE_DETECTION_RESIZE and cv2 is not None:
+        if ENABLE_DETECTION_RESIZE and self._cv2 is not None:
             max_dim = max(width, height)
             if max_dim > DETECTION_MAX_DIM:
                 scale = DETECTION_MAX_DIM / float(max_dim)
@@ -154,7 +199,11 @@ class HandTracker:
             if abs(scale - 1.0) > 1e-3:
                 new_w = max(1, int(width * scale))
                 new_h = max(1, int(height * scale))
-                det_image = cv2.resize(det_image, (new_w, new_h), interpolation=cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR)
+                det_image = self._cv2.resize(
+                    det_image,
+                    (new_w, new_h),
+                    interpolation=self._cv2.INTER_AREA if scale < 1.0 else self._cv2.INTER_LINEAR,
+                )
                 resized = True
 
         if ENABLE_DETECTION_SQUARE:
@@ -180,50 +229,64 @@ class HandTracker:
         label = None
 
         if results.multi_hand_landmarks:
-            hand_landmarks = results.multi_hand_landmarks[0]
             det_h, det_w = det_image.shape[:2]
-            if self._landmark_pb2 is not None and det_w > 0 and det_h > 0:
-                adjusted = self._landmark_pb2.NormalizedLandmarkList()
-                for lm in hand_landmarks.landmark:
-                    x_det = lm.x * det_w
-                    y_det = lm.y * det_h
-                    x_unpad = x_det - pad_x
-                    y_unpad = y_det - pad_y
-                    x_orig = x_unpad / scale
-                    y_orig = y_unpad / scale
-                    x_norm = x_orig / float(width)
-                    y_norm = y_orig / float(height)
-                    if x_norm < 0.0:
-                        x_norm = 0.0
-                    elif x_norm > 1.0:
-                        x_norm = 1.0
-                    if y_norm < 0.0:
-                        y_norm = 0.0
-                    elif y_norm > 1.0:
-                        y_norm = 1.0
-                    adjusted.landmark.append(
-                        self._landmark_pb2.NormalizedLandmark(x=x_norm, y=y_norm, z=lm.z)
-                    )
-                self._mp_draw.draw_landmarks(image, adjusted, self._mp_hands.HAND_CONNECTIONS)
-            else:
-                self._mp_draw.draw_landmarks(image, hand_landmarks, self._mp_hands.HAND_CONNECTIONS)
-            features = build_hand_features(hand_landmarks.landmark)
 
-            score = 0.0
-            if results.multi_handedness and len(results.multi_handedness) > 0:
-                classification = results.multi_handedness[0].classification
-                if classification:
-                    label = classification[0].label
-                    score = float(classification[0].score)
+            def draw_landmarks(hand_lms):
+                if self._mp_draw is None or self._mp_hands is None:
+                    return
+                if self._landmark_pb2 is not None and det_w > 0 and det_h > 0:
+                    adjusted = self._landmark_pb2.NormalizedLandmarkList()
+                    for lm in hand_lms.landmark:
+                        x_det = lm.x * det_w
+                        y_det = lm.y * det_h
+                        x_unpad = x_det - pad_x
+                        y_unpad = y_det - pad_y
+                        x_orig = x_unpad / scale
+                        y_orig = y_unpad / scale
+                        x_norm = x_orig / float(width)
+                        y_norm = y_orig / float(height)
+                        if x_norm < 0.0:
+                            x_norm = 0.0
+                        elif x_norm > 1.0:
+                            x_norm = 1.0
+                        if y_norm < 0.0:
+                            y_norm = 0.0
+                        elif y_norm > 1.0:
+                            y_norm = 1.0
+                        adjusted.landmark.append(
+                            self._landmark_pb2.NormalizedLandmark(x=x_norm, y=y_norm, z=lm.z)
+                        )
+                    self._mp_draw.draw_landmarks(image, adjusted, self._mp_hands.HAND_CONNECTIONS)
+                else:
+                    self._mp_draw.draw_landmarks(image, hand_lms, self._mp_hands.HAND_CONNECTIONS)
 
-            if label == "Right":
-                right_features = features
-                right_conf = score
-            elif label == "Left":
-                left_features = features
-                left_conf = score
-            else:
-                unknown_features.append((features, score))
+            for idx, hand_landmarks in enumerate(results.multi_hand_landmarks):
+                if self._primary_hand_only and idx > 0:
+                    break
+                draw_landmarks(hand_landmarks)
+                features = build_hand_features(hand_landmarks.landmark)
+
+                score = 0.0
+                hand_label = None
+                if results.multi_handedness and len(results.multi_handedness) > idx:
+                    classification = results.multi_handedness[idx].classification
+                    if classification:
+                        hand_label = classification[0].label
+                        score = float(classification[0].score)
+
+                if label is None and hand_label:
+                    label = hand_label
+
+                if hand_label == "Right":
+                    if right_features is None or score >= right_conf:
+                        right_features = features
+                        right_conf = score
+                elif hand_label == "Left":
+                    if left_features is None or score >= left_conf:
+                        left_features = features
+                        left_conf = score
+                else:
+                    unknown_features.append((features, score))
 
             if right_features is None and unknown_features:
                 right_features, right_conf = unknown_features.pop(0)
@@ -284,12 +347,15 @@ class HandTrackingWorker(QThread):
     fps_updated = pyqtSignal(float)
     prediction_updated = pyqtSignal(str)
 
-    def __init__(self, flip_horizontal: bool = False):
+    def __init__(self, flip_horizontal: bool = False, primary_hand_only: bool = True):
         super().__init__()
-        self._tracker = HandTracker()
+        self._tracker = None
         self._flip_horizontal = bool(flip_horizontal)
+        self._primary_hand_only = bool(primary_hand_only)
+        self._pending_reconfigure = False
         self._queue = deque(maxlen=1)
         self._lock = threading.Lock()
+        self._config_lock = threading.Lock()
         self._event = threading.Event()
         self._running = True
         self._fps = 0.0
@@ -297,10 +363,39 @@ class HandTrackingWorker(QThread):
 
     @property
     def available(self):
-        return self._tracker.available
+        return bool(self._tracker and self._tracker.available)
+
+    def set_flip_horizontal(self, enabled: bool):
+        with self._config_lock:
+            self._flip_horizontal = bool(enabled)
+        self._event.set()
+
+    def set_primary_hand_only(self, enabled: bool):
+        with self._config_lock:
+            enabled = bool(enabled)
+            if enabled != self._primary_hand_only:
+                self._primary_hand_only = enabled
+                self._pending_reconfigure = True
+        self._event.set()
+
+    def _snapshot_config(self):
+        with self._config_lock:
+            flip = self._flip_horizontal
+            primary_only = self._primary_hand_only
+            reconfigure = self._pending_reconfigure
+            self._pending_reconfigure = False
+        return flip, primary_only, reconfigure
+
+    def _ensure_tracker(self, primary_only: bool):
+        if self._tracker is None:
+            self._tracker = HandTracker(primary_hand_only=primary_only)
+            self._tracker.initialize()
+            return
+        if self._tracker.primary_hand_only != primary_only:
+            self._tracker.reconfigure(primary_only)
 
     def submit(self, frame: dict):
-        if not self.available or frame is None:
+        if frame is None or not self._running:
             return
         with self._lock:
             self._queue.clear()
@@ -308,32 +403,47 @@ class HandTrackingWorker(QThread):
         self._event.set()
 
     def run(self):
-        while self._running:
-            if not self._event.wait(0.5):
-                continue
-            self._event.clear()
-            with self._lock:
-                frame = self._queue.pop() if self._queue else None
-            if frame is None:
-                continue
-            processed, status = self._tracker.process(frame, flip_horizontal=self._flip_horizontal)
+        flip, primary_only, _ = self._snapshot_config()
+        self._ensure_tracker(primary_only)
+        try:
+            while self._running:
+                if not self._event.wait(0.5):
+                    continue
+                self._event.clear()
 
-            now = time.perf_counter()
-            if self._last_time is not None:
-                delta = now - self._last_time
-                if delta > 1e-6:
-                    instant = 1.0 / delta
-                    self._fps = (self._fps * 0.85) + (instant * 0.15)
-                    self.fps_updated.emit(self._fps)
-            self._last_time = now
+                flip, primary_only, reconfigure = self._snapshot_config()
+                if reconfigure:
+                    self._ensure_tracker(primary_only)
 
-            if status is not None:
-                self.status_updated.emit(status)
-                prediction = status.get("prediction") if isinstance(status, dict) else None
-                if prediction is not None:
-                    self.prediction_updated.emit(str(prediction))
-            if processed is not None:
-                self.frame_processed.emit(processed)
+                with self._lock:
+                    frame = self._queue.pop() if self._queue else None
+                if frame is None:
+                    continue
+                if self._tracker is None or not self._tracker.available:
+                    continue
+
+                processed, status = self._tracker.process(frame, flip_horizontal=flip)
+
+                now = time.perf_counter()
+                if self._last_time is not None:
+                    delta = now - self._last_time
+                    if delta > 1e-6:
+                        instant = 1.0 / delta
+                        self._fps = (self._fps * 0.85) + (instant * 0.15)
+                        self.fps_updated.emit(self._fps)
+                self._last_time = now
+
+                if status is not None:
+                    self.status_updated.emit(status)
+                    prediction = status.get("prediction") if isinstance(status, dict) else None
+                    if prediction is not None:
+                        self.prediction_updated.emit(str(prediction))
+                if processed is not None:
+                    self.frame_processed.emit(processed)
+        finally:
+            if self._tracker is not None:
+                self._tracker.close()
+                self._tracker = None
 
     def stop(self):
         self._running = False

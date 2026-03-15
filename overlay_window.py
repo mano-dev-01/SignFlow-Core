@@ -15,7 +15,6 @@ from overlay_capture import ScreenCaptureThread
 from overlay_constants import (
     ANIMATION_DURATION_MS,
     CAPTURE_FPS,
-    CAPTURE_FLIP_HORIZONTAL,
     CORNER_BOTTOM_LEFT,
     CORNER_BOTTOM_RIGHT,
     CORNER_TOP_LEFT,
@@ -53,11 +52,12 @@ from overlay_utils import (
 
 
 class OverlayWindow(QWidget):
-    def __init__(self, defaults, preferences):
+    def __init__(self, defaults, preferences, debug_captions: bool = False):
         super().__init__()
 
         self.defaults = defaults
         self.preferences = preferences
+        self.debug_captions = bool(debug_captions)
         self.caption_text = LABEL_DEFAULT_TEXT
         self.caption_font_size = DEFAULT_FONT_SIZE
         self.applied_caption_box_size = self.preferences["caption_box_size"]
@@ -67,6 +67,8 @@ class OverlayWindow(QWidget):
         self.enable_llm_smoothing = self.preferences["enable_llm_smoothing"]
         self.corner = self.preferences["corner"]
         self.show_miniplayer = self.preferences["show_miniplayer"]
+        self.flip_input = self.preferences["flip_input"]
+        self.primary_hand_only = self.preferences["primary_hand_only"]
         self.secondary_expanded = False
         self.secondary_current_height = 0
         self.advanced_expanded = False
@@ -154,6 +156,8 @@ class OverlayWindow(QWidget):
         self.preferences["enable_llm_smoothing"] = self.enable_llm_smoothing
         self.preferences["corner"] = self.corner
         self.preferences["show_miniplayer"] = self.show_miniplayer
+        self.preferences["flip_input"] = self.flip_input
+        self.preferences["primary_hand_only"] = self.primary_hand_only
         save_user_preferences(self.preferences)
 
     def _connect_signals(self):
@@ -171,6 +175,8 @@ class OverlayWindow(QWidget):
         self.advanced_panel.show_miniplayer_checkbox.toggled.connect(self.on_show_miniplayer_toggled)
         self.advanced_panel.show_model_status_checkbox.toggled.connect(self.on_freeze_on_loss_toggled)
         self.advanced_panel.show_model_status_checkbox.toggled.connect(self.on_show_model_status_toggled)
+        self.advanced_panel.flip_input_checkbox.toggled.connect(self.on_flip_input_toggled)
+        self.advanced_panel.primary_hand_only_checkbox.toggled.connect(self.on_primary_hand_only_toggled)
         self.advanced_panel.corner_combo.currentTextChanged.connect(self.on_corner_changed)
         self.advanced_panel.restart_button.clicked.connect(self.on_restart_requested)
         self.advanced_panel.reset_preferences_button.clicked.connect(self.on_reset_preferences_requested)
@@ -296,6 +302,8 @@ class OverlayWindow(QWidget):
         self.advanced_panel.disable_llm_checkbox.setChecked(not self.enable_llm_smoothing)
         self.advanced_panel.show_miniplayer_checkbox.setChecked(self.show_miniplayer)
         self.advanced_panel.show_model_status_checkbox.setChecked(self.freeze_on_detection_loss)
+        self.advanced_panel.flip_input_checkbox.setChecked(self.flip_input)
+        self.advanced_panel.primary_hand_only_checkbox.setChecked(self.primary_hand_only)
         self.advanced_panel.corner_combo.setCurrentText(self.corner)
         self.advanced_panel.set_status_active(False)
 
@@ -355,6 +363,18 @@ class OverlayWindow(QWidget):
         elif self.capture_state and self.capture_state.get("region"):
             self._ensure_preview_window()
         self._sync_model_status_availability()
+        self._write_preferences()
+
+    def on_flip_input_toggled(self, checked: bool):
+        self.flip_input = bool(checked)
+        if self.hand_worker is not None:
+            self.hand_worker.set_flip_horizontal(self.flip_input)
+        self._write_preferences()
+
+    def on_primary_hand_only_toggled(self, checked: bool):
+        self.primary_hand_only = bool(checked)
+        if self.hand_worker is not None:
+            self.hand_worker.set_primary_hand_only(self.primary_hand_only)
         self._write_preferences()
 
     def _sync_model_status_availability(self):
@@ -555,8 +575,11 @@ class OverlayWindow(QWidget):
         if not self._preview_timer.isActive():
             self._preview_timer.start()
 
-        if self.hand_worker is None:
-            self.hand_worker = HandTrackingWorker(flip_horizontal=CAPTURE_FLIP_HORIZONTAL)
+        if self.hand_worker is None and not self.debug_captions:
+            self.hand_worker = HandTrackingWorker(
+                flip_horizontal=self.flip_input,
+                primary_hand_only=self.primary_hand_only,
+            )
             self.hand_worker.status_updated.connect(self._on_detection_status)
             self.hand_worker.frame_processed.connect(self._on_processed_frame)
             self.hand_worker.fps_updated.connect(self._on_processing_fps)
@@ -621,6 +644,8 @@ class OverlayWindow(QWidget):
         self._processing_fps = float(fps or 0.0)
 
     def _on_prediction_text(self, text: str):
+        if self.debug_captions:
+            return
         clean = (text or "").strip()
         if not clean:
             return
@@ -649,7 +674,7 @@ class OverlayWindow(QWidget):
         image = _frame_to_qimage(frame)
         if image is None:
             return
-        if CAPTURE_FLIP_HORIZONTAL and not using_processed:
+        if self.flip_input and not using_processed:
             image = image.mirrored(True, False)
         self.preview_window.update_frame(image)
 

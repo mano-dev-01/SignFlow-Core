@@ -108,4 +108,6 @@ DEFAULT_SETTINGS = {
     "enable_llm_smoothing": False,
     "corner": DEFAULT_CORNER,
     "show_miniplayer": True,
+    "flip_input": CAPTURE_FLIP_HORIZONTAL,
+    "primary_hand_only": True,
 }

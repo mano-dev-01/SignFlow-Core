@@ -590,6 +590,8 @@ class AdvancedPanel(QFrame):
         self.show_miniplayer_checkbox = ThemedCheckBox("Show miniplayer")
         self.show_model_status_checkbox = ThemedCheckBox("Show model status")
         self.disable_llm_checkbox = ThemedCheckBox("Disable LLM smoothing")
+        self.flip_input_checkbox = ThemedCheckBox("Flip input")
+        self.primary_hand_only_checkbox = ThemedCheckBox("Detect only one / primary hand")
 
         self.corner_combo = ThemedComboBox()
         self.corner_combo.addItems(CORNER_OPTIONS)
@@ -619,6 +621,8 @@ class AdvancedPanel(QFrame):
         left_col.addStretch(1)
 
         right_col.addWidget(self.disable_llm_checkbox)
+        right_col.addWidget(self.flip_input_checkbox)
+        right_col.addWidget(self.primary_hand_only_checkbox)
         right_col.addLayout(self._labeled_row("Status", self.status_indicator))
         right_col.addWidget(self.restart_button)
         right_col.addStretch(1)
