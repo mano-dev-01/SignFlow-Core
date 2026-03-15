@@ -43,8 +43,16 @@ def _sanitize_settings(raw):
             CAPTION_FONT_SIZE_MAX,
             DEFAULT_SETTINGS["caption_font_size"],
         ),
-        "opacity_percent": _clamp_int(source.get("opacity_percent"), MIN_OPACITY_PERCENT, MAX_OPACITY_PERCENT, DEFAULT_SETTINGS["opacity_percent"]),
-            "freeze_on_detection_loss": _as_bool(source.get("freeze_on_detection_loss"), DEFAULT_SETTINGS["freeze_on_detection_loss"]),
+        "opacity_percent": _clamp_int(
+            source.get("opacity_percent"),
+            MIN_OPACITY_PERCENT,
+            MAX_OPACITY_PERCENT,
+            DEFAULT_SETTINGS["opacity_percent"],
+        ),
+        "freeze_on_detection_loss": _as_bool(
+            source.get("freeze_on_detection_loss"),
+            DEFAULT_SETTINGS["freeze_on_detection_loss"],
+        ),
         "enable_llm_smoothing": _as_bool(source.get("enable_llm_smoothing"), DEFAULT_SETTINGS["enable_llm_smoothing"]),
         "corner": source.get("corner") if source.get("corner") in CORNER_OPTIONS else DEFAULT_SETTINGS["corner"],
         "show_miniplayer": _as_bool(source.get("show_miniplayer"), DEFAULT_SETTINGS["show_miniplayer"]),

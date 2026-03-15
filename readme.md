@@ -9,11 +9,14 @@ Python version: `3.10`
 - Always-on-top overlay window with capture controls and persistent preferences
 - Snipping-style region selection with a dimmed screen and outline
 - Live capture of the selected region (mss + QThread)
-- Floating preview window with status text and region label
-- Toggleable "Current Status" panel with live system metrics
+- Floating preview window with optional status panel and region label
 - Pause/resume preview updates (capture thread continues running)
+- Caption panel with init mode (status text) and caption mode (live predictions)
+- Caption font size control plus caption box size/opacity controls
 - Optional hand tracking and prediction display when model + dependencies are present
-- Advanced settings for Flip Input and Detect only one / primary hand
+- Advanced settings: Show Miniplayer, Show Model Status, Disable LLM smoothing, Flip Input, Detect only one / primary hand
+- Session logging to `logs/` as JSON (events + final caption transcript)
+- `--random` caption simulator for UI testing
 
 ## What It Does Not Do Yet
 
@@ -39,10 +42,13 @@ Python version: `3.10`
    - If a model is available, predictions are produced and surfaced to the UI.
    - Detection status and FPS are emitted as signals to update the status panel.
    - Heavy initialization runs in the worker thread to keep the UI responsive.
-6. **Debug Captions (Optional)**:
+6. **Captions + Logging**:
+   - Predictions update the caption panel in real time.
+   - Each session is logged to `logs/` with metadata, events, and a final transcript.
+7. **Debug Captions (Optional)**:
    - `overlay.py --random` enables a caption simulator for UI testing.
    - The simulator generates word-by-word caption output on a timer.
-7. **UI State & Preferences**:
+8. **UI State & Preferences**:
    - `overlay_preferences.py` stores user settings in `user_preferences.json`.
    - `overlay_constants.py` defines defaults and UI constants.
 
@@ -82,6 +88,8 @@ Python version: `3.10`
   - `SIGN_PREDICTION_MIN_CONFIDENCE` controls prediction filtering
 - `overlay_preferences.py`  
   - Read/write user preferences and defaults
+- `overlay_logging.py`  
+  - Session logging to JSON files (events + final transcript)
 - `overlay_utils.py`  
   - Frame conversion, capture control, and process helpers
 
@@ -90,6 +98,8 @@ Python version: `3.10`
   - Baseline configuration shipped with the app
 - `user_preferences.json`  
   - User-specific overrides written at runtime
+- `logs/`  
+  - Session logs (one JSON file per run)
 
 **Utilities**
 - `misc/realtime_sender.py`  
@@ -111,11 +121,13 @@ SignFlow-Core/
   overlay_preview.py
   overlay_hand_tracking.py
   overlay_constants.py
+  overlay_logging.py
   overlay_preferences.py
   overlay_utils.py
   default_settings.json
   user_preferences.json
   requirements.txt
+  logs/
   models/
     model.pkl
     model___.pkl
@@ -152,6 +164,7 @@ SignFlow-Core/
 
 - Overlay and preview windows are always-on-top by design.
 - Hand tracking requires MediaPipe; model inference requires `models/model.pkl`.
+- Logs are written per session to `logs/` (debug sessions use `pseudo-` session IDs).
 - Windows is the primary target for the overlay UI.
 
 ## Future Vision
