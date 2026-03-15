@@ -42,10 +42,14 @@ from overlay_constants import (
     RADIUS,
     SECONDARY_ACTION_BUTTON_SIZE,
     SECONDARY_ACTION_ICON_SIZE,
+    SECONDARY_PLAY_BUTTON_RADIUS,
+    SECONDARY_PLAY_BUTTON_SIZE,
+    SECONDARY_PLAY_ICON_SIZE,
     SECONDARY_ACTION_INDICATOR_ACTIVE,
     SECONDARY_ACTION_ROW_SPACING,
     SECONDARY_BG,
     SECONDARY_CHECKBOX_MIN_HEIGHT,
+    SECONDARY_SIDE_BUTTON_RADIUS,
     SECONDARY_COLUMN_SPACING,
     SECONDARY_CONTROL_FONT_SIZE,
     SECONDARY_CONTROL_MIN_HEIGHT,
@@ -348,7 +352,7 @@ def _panel_styles(panel_name: str):
         QPushButton#actionButton {{
             background-color: {BUTTON_BG};
             border: 1px solid {BORDER_COLOR};
-            border-radius: 7px;
+            border-radius: {SECONDARY_SIDE_BUTTON_RADIUS}px;
             color: {TEXT_COLOR};
             font: 600 18px '{FONT_FAMILY}';
         }}
@@ -359,23 +363,31 @@ def _panel_styles(panel_name: str):
             outline: none;
             border: 1px solid {BORDER_COLOR};
         }}
-        QPushButton#actionToggleButton {{
+        QPushButton#actionPrimaryButton {{
             background-color: {BUTTON_BG};
             border: 1px solid {BORDER_COLOR};
-            border-radius: 7px;
+            border-radius: {SECONDARY_PLAY_BUTTON_RADIUS}px;
             color: {TEXT_COLOR};
             font: 600 18px '{FONT_FAMILY}';
         }}
-        QPushButton#actionToggleButton:hover {{
+        QPushButton#actionPrimaryButton:hover {{
             background-color: {BUTTON_HOVER_BG};
         }}
-        QPushButton#actionToggleButton:pressed {{
+        QPushButton#actionPrimaryButton:pressed {{
             background-color: rgba(255, 255, 255, 38);
             border: 1px solid {BORDER_COLOR};
         }}
-        QPushButton#actionToggleButton:focus {{
+        QPushButton#actionPrimaryButton:focus {{
             outline: none;
             border: 1px solid {BORDER_COLOR};
+        }}
+        QToolTip {{
+            background-color: rgba(20, 20, 24, 235);
+            color: {TEXT_COLOR};
+            border: 1px solid {BORDER_COLOR};
+            border-radius: 6px;
+            padding: 7px 9px;
+            font: 500 13px '{FONT_FAMILY}';
         }}
         QLabel#actionStatus {{
             color: {TEXT_COLOR};
@@ -410,29 +422,26 @@ class SecondaryPanel(QFrame):
         action_row.setContentsMargins(0, 0, 0, 0)
         self.crop_button = QPushButton("")
         self.crop_button.setObjectName("actionButton")
-        self.crop_button.setMinimumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.crop_button.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.crop_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.crop_button.setFixedSize(SECONDARY_ACTION_BUTTON_SIZE, SECONDARY_ACTION_BUTTON_SIZE)
+        self.crop_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.crop_button.setFocusPolicy(Qt.NoFocus)
-        self.crop_button.setToolTip("Full Screen Capture")
+        self.crop_button.setToolTip("Full screen")
         self.crop_button.clicked.connect(self.crop_clicked.emit)
 
         self.play_pause_button = QPushButton("")
-        self.play_pause_button.setObjectName("actionToggleButton")
-        self.play_pause_button.setMinimumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.play_pause_button.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.play_pause_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.play_pause_button.setObjectName("actionPrimaryButton")
+        self.play_pause_button.setFixedSize(SECONDARY_PLAY_BUTTON_SIZE, SECONDARY_PLAY_BUTTON_SIZE)
+        self.play_pause_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.play_pause_button.setFocusPolicy(Qt.NoFocus)
-        self.play_pause_button.setToolTip("Pause / Play")
+        self.play_pause_button.setToolTip("Play / pause")
         self.play_pause_button.clicked.connect(self._toggle_play_pause)
 
         self.clear_button = QPushButton("")
         self.clear_button.setObjectName("actionButton")
-        self.clear_button.setMinimumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.clear_button.setMaximumHeight(SECONDARY_ACTION_BUTTON_SIZE)
-        self.clear_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.clear_button.setFixedSize(SECONDARY_ACTION_BUTTON_SIZE, SECONDARY_ACTION_BUTTON_SIZE)
+        self.clear_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.clear_button.setFocusPolicy(Qt.NoFocus)
-        self.clear_button.setToolTip("Region Based Capture")
+        self.clear_button.setToolTip("Select region")
         self.clear_button.clicked.connect(self.clear_clicked.emit)
 
         self._set_action_icon_sizes()
@@ -440,20 +449,23 @@ class SecondaryPanel(QFrame):
         self.clear_button.setIcon(self._build_region_icon(SECONDARY_ACTION_ICON_SIZE))
         self._apply_play_pause_icon()
 
-        action_row.addWidget(self.crop_button, 1)
-        action_row.addWidget(self.play_pause_button, 1)
-        action_row.addWidget(self.clear_button, 1)
+        action_row.addStretch(1)
+        action_row.addWidget(self.crop_button)
+        action_row.addWidget(self.play_pause_button)
+        action_row.addWidget(self.clear_button)
+        action_row.addStretch(1)
 
         action_divider = QFrame()
         action_divider.setObjectName("secondaryDivider")
         action_divider.setFrameShape(QFrame.HLine)
         action_divider.setFrameShadow(QFrame.Plain)
 
-        self.show_advanced_button = QPushButton("Show Advanced")
+        self.show_advanced_button = QPushButton("")
         self.show_advanced_button.setObjectName("restartButton")
         self.show_advanced_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
         self.show_advanced_button.setCheckable(True)
         self.show_advanced_button.toggled.connect(self._on_advanced_toggled)
+        self._apply_advanced_button_label(False)
 
         root.addLayout(action_row)
         root.addWidget(action_divider)
@@ -472,9 +484,15 @@ class SecondaryPanel(QFrame):
         blocked = self.show_advanced_button.blockSignals(True)
         self.show_advanced_button.setChecked(bool(expanded))
         self.show_advanced_button.blockSignals(blocked)
+        self._apply_advanced_button_label(bool(expanded))
 
     def _on_advanced_toggled(self, checked: bool):
+        self._apply_advanced_button_label(bool(checked))
         self.advanced_toggled.emit(bool(checked))
+
+    def _apply_advanced_button_label(self, expanded: bool):
+        caret = "▴" if expanded else "▾"
+        self.show_advanced_button.setText(f"Advanced {caret}")
 
     @staticmethod
     def _labeled_row(title: str, widget: QWidget):
@@ -487,10 +505,11 @@ class SecondaryPanel(QFrame):
         return layout
 
     def _set_action_icon_sizes(self):
-        icon_size = QSize(SECONDARY_ACTION_ICON_SIZE, SECONDARY_ACTION_ICON_SIZE)
-        self.crop_button.setIconSize(icon_size)
-        self.play_pause_button.setIconSize(icon_size)
-        self.clear_button.setIconSize(icon_size)
+        side_icon_size = QSize(SECONDARY_ACTION_ICON_SIZE, SECONDARY_ACTION_ICON_SIZE)
+        play_icon_size = QSize(SECONDARY_PLAY_ICON_SIZE, SECONDARY_PLAY_ICON_SIZE)
+        self.crop_button.setIconSize(side_icon_size)
+        self.play_pause_button.setIconSize(play_icon_size)
+        self.clear_button.setIconSize(side_icon_size)
 
     def _new_icon_canvas(self, size: int):
         pix = QPixmap(size, size)
@@ -587,9 +606,9 @@ class SecondaryPanel(QFrame):
 
     def _apply_play_pause_icon(self):
         if self._is_playing:
-            self.play_pause_button.setIcon(self._build_pause_icon(SECONDARY_ACTION_ICON_SIZE))
+            self.play_pause_button.setIcon(self._build_pause_icon(SECONDARY_PLAY_ICON_SIZE))
         else:
-            self.play_pause_button.setIcon(self._build_play_icon(SECONDARY_ACTION_ICON_SIZE))
+            self.play_pause_button.setIcon(self._build_play_icon(SECONDARY_PLAY_ICON_SIZE))
 
     def _toggle_play_pause(self):
         self._is_playing = not self._is_playing
