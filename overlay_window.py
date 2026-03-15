@@ -691,10 +691,17 @@ class OverlayWindow(QWidget):
         self._start_capture()
 
     def on_play_pause_toggled(self, _is_playing: bool):
-        if self.capture_state is None:
-            self.capture_state = {"region": None, "paused": not _is_playing}
-        else:
-            self.capture_state["paused"] = not _is_playing
+        if self.capture_state is None or not self.capture_state.get("region"):
+            if _is_playing:
+                self.on_fullscreen_capture()
+            else:
+                self.capture_state = {"region": None, "paused": True}
+                self.advanced_panel.set_status_active(False)
+                if self.preview_window is not None:
+                    self.preview_window.set_capture_state("IDLE")
+            return
+
+        self.capture_state["paused"] = not _is_playing
         self.advanced_panel.set_status_active(bool(_is_playing))
         if self.preview_window is not None:
             self.preview_window.set_capture_state("LIVE" if _is_playing else "PAUSED")

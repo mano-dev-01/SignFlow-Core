@@ -10,9 +10,10 @@ Python version: `3.10`
 - Snipping-style region selection with a dimmed screen and outline
 - Live capture of the selected region (mss + QThread)
 - Floating preview window with status text and region label
-- Toggleable “Current Status” panel with live system metrics
+- Toggleable "Current Status" panel with live system metrics
 - Pause/resume preview updates (capture thread continues running)
 - Optional hand tracking and prediction display when model + dependencies are present
+- Advanced settings for Flip Input and Detect only one / primary hand
 
 ## What It Does Not Do Yet
 
@@ -37,7 +38,11 @@ Python version: `3.10`
    - `overlay_hand_tracking.py` consumes frames and extracts hand landmarks.
    - If a model is available, predictions are produced and surfaced to the UI.
    - Detection status and FPS are emitted as signals to update the status panel.
-6. **UI State & Preferences**:
+   - Heavy initialization runs in the worker thread to keep the UI responsive.
+6. **Debug Captions (Optional)**:
+   - `overlay.py --random` enables a caption simulator for UI testing.
+   - The simulator generates word-by-word caption output on a timer.
+7. **UI State & Preferences**:
    - `overlay_preferences.py` stores user settings in `user_preferences.json`.
    - `overlay_constants.py` defines defaults and UI constants.
 
@@ -46,6 +51,7 @@ Python version: `3.10`
 **Entry Point**
 - `overlay.py`  
   - Application bootstrap and main window initialization
+  - Optional caption simulator via `--random`
 
 **Overlay UI + State**
 - `overlay_window.py`  
@@ -65,6 +71,7 @@ Python version: `3.10`
 - `overlay_hand_tracking.py`  
   - MediaPipe-based hand tracking, feature extraction, and model inference
   - Emits detection status, processed frames, FPS, and prediction text
+  - Supports Flip Input and primary-hand-only detection
 - `models/`  
   - `model.pkl`  
   - `model___.pkl` (alternate or legacy model)
@@ -121,7 +128,9 @@ SignFlow-Core/
 ## Key Tunables
 
 - `SIGN_PREDICTION_MIN_CONFIDENCE` in `overlay_constants.py`  
-  Controls the minimum confidence required before a prediction is accepted. Raising this value reduces “Uncertain” labels at the cost of fewer predictions.
+  Controls the minimum confidence required before a prediction is accepted. Raising this value reduces "Uncertain" labels at the cost of fewer predictions.
+- `CAPTURE_FLIP_HORIZONTAL` in `overlay_constants.py`  
+  Default for the Flip Input advanced setting.
 
 ## Setup (Windows)
 
@@ -136,7 +145,8 @@ SignFlow-Core/
 `pip install -r requirements.txt`
 
 4. Run  
-`python overlay.py`
+`python overlay.py`  
+`python overlay.py --random` (debug captions)
 
 ## Notes
 

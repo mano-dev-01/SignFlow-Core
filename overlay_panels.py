@@ -1,3 +1,6 @@
+import html
+import re
+
 from PyQt5.QtCore import QRectF, QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PyQt5.QtWidgets import (
@@ -71,6 +74,8 @@ class PrimaryPanel(QFrame):
         self.caption_label = QLabel(LABEL_DEFAULT_TEXT)
         self.caption_label.setWordWrap(True)
         self.caption_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.caption_label.setTextFormat(Qt.RichText)
+        self._caption_plain = LABEL_DEFAULT_TEXT
 
         self.toggle_button = QPushButton("▾")
         self.toggle_button.setFixedSize(BUTTON_WIDTH, BUTTON_HEIGHT)
@@ -113,7 +118,8 @@ class PrimaryPanel(QFrame):
         )
 
     def set_caption_text(self, text: str):
-        self.caption_label.setText(text or LABEL_DEFAULT_TEXT)
+        self._caption_plain = text or LABEL_DEFAULT_TEXT
+        self.caption_label.setText(self._format_caption(self._caption_plain))
         self._recompute_height()
 
     def set_caption_font_size(self, size: int):
@@ -134,7 +140,7 @@ class PrimaryPanel(QFrame):
             width = max(120, fallback)
 
         metrics = QFontMetrics(self.caption_label.font())
-        text_rect = metrics.boundingRect(0, 0, width, 10000, Qt.TextWordWrap, self.caption_label.text())
+        text_rect = metrics.boundingRect(0, 0, width, 10000, Qt.TextWordWrap, self._caption_plain)
         caption_height = max(text_rect.height() + CAPTION_VERTICAL_PADDING, metrics.height() + CAPTION_VERTICAL_PADDING)
 
         self.caption_label.setMinimumHeight(caption_height)
@@ -151,6 +157,30 @@ class PrimaryPanel(QFrame):
         auto_height = (OUTER_PADDING * 2) + content_height
         panel_height = max(auto_height, self.user_box_size)
         self.setFixedHeight(panel_height)
+
+    @staticmethod
+    def _format_caption(text: str):
+        safe = text or ""
+        parts = re.split(r"(\s+)", safe)
+        last_word_index = None
+        for idx in range(len(parts) - 1, -1, -1):
+            if parts[idx].strip():
+                last_word_index = idx
+                break
+
+        rendered = []
+        for idx, part in enumerate(parts):
+            if not part:
+                continue
+            if part.isspace():
+                chunk = part.replace("\n", "<br>")
+                rendered.append(chunk)
+                continue
+            escaped = html.escape(part)
+            if last_word_index is not None and idx == last_word_index:
+                escaped = f"<span style=\"font-weight:600;\">{escaped}</span>"
+            rendered.append(escaped)
+        return "".join(rendered)
 
 
 class ThemedCheckBox(QCheckBox):
