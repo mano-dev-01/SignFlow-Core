@@ -1,7 +1,7 @@
 import html
 import re
 
-from PyQt5.QtCore import QRectF, QSize, Qt, pyqtSignal
+from PyQt5.QtCore import QRectF, QSize, Qt, QVariantAnimation, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
 )
 
 from overlay_constants import (
+    ANIMATION_DURATION_MS,
     BUTTON_BG,
     BUTTON_COLUMN_SPACING,
     BUTTON_HEIGHT,
@@ -436,6 +437,7 @@ class SecondaryPanel(QFrame):
     clear_clicked = pyqtSignal()
     advanced_toggled = pyqtSignal(bool)
     voice_toggled = pyqtSignal(bool)
+    webcam_toggled = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
@@ -447,6 +449,7 @@ class SecondaryPanel(QFrame):
         self._expanded_height = 0
         self._theme = get_theme_palette(False)
         self._icon_color = QColor(255, 255, 255, 235)
+        self._gear_angle = 0.0
 
         root = QVBoxLayout(self)
         root.setContentsMargins(OUTER_PADDING, OUTER_PADDING, OUTER_PADDING, OUTER_PADDING)
@@ -455,6 +458,14 @@ class SecondaryPanel(QFrame):
         action_row = QHBoxLayout()
         action_row.setSpacing(SECONDARY_ACTION_ROW_SPACING)
         action_row.setContentsMargins(0, 0, 0, 0)
+        self.webcam_button = QPushButton("")
+        self.webcam_button.setObjectName("actionButton")
+        self.webcam_button.setFixedSize(SECONDARY_ACTION_BUTTON_SIZE, SECONDARY_ACTION_BUTTON_SIZE)
+        self.webcam_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.webcam_button.setFocusPolicy(Qt.NoFocus)
+        self.webcam_button.setToolTip("Webcam")
+        self.webcam_button.setCheckable(True)
+        self.webcam_button.toggled.connect(self._on_webcam_toggled)
         self.crop_button = QPushButton("")
         self.crop_button.setObjectName("actionButton")
         self.crop_button.setFixedSize(SECONDARY_ACTION_BUTTON_SIZE, SECONDARY_ACTION_BUTTON_SIZE)
@@ -479,33 +490,36 @@ class SecondaryPanel(QFrame):
         self.clear_button.setToolTip("Select region")
         self.clear_button.clicked.connect(self.clear_clicked.emit)
 
+        self.gear_button = QPushButton("")
+        self.gear_button.setObjectName("actionButton")
+        self.gear_button.setFixedSize(SECONDARY_ACTION_BUTTON_SIZE, SECONDARY_ACTION_BUTTON_SIZE)
+        self.gear_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.gear_button.setFocusPolicy(Qt.NoFocus)
+        self.gear_button.setToolTip("Advanced settings")
+        self.gear_button.setCheckable(True)
+        self.gear_button.toggled.connect(self._on_advanced_toggled)
+
         self._set_action_icon_sizes()
+        self.webcam_button.setIcon(self._build_webcam_icon(SECONDARY_ACTION_ICON_SIZE))
         self.crop_button.setIcon(self._build_crop_icon(SECONDARY_ACTION_ICON_SIZE))
         self.clear_button.setIcon(self._build_region_icon(SECONDARY_ACTION_ICON_SIZE))
         self._apply_play_pause_icon()
+        self._apply_gear_icon()
 
+        action_row.addStretch(1)
+        action_row.addWidget(self.webcam_button)
         action_row.addStretch(1)
         action_row.addWidget(self.crop_button)
         action_row.addWidget(self.play_pause_button)
         action_row.addWidget(self.clear_button)
+        action_row.addStretch(1)
+        action_row.addWidget(self.gear_button)
         action_row.addStretch(1)
 
         action_divider = QFrame()
         action_divider.setObjectName("secondaryDivider")
         action_divider.setFrameShape(QFrame.HLine)
         action_divider.setFrameShadow(QFrame.Plain)
-
-        self.show_advanced_button = QPushButton("")
-        self.show_advanced_button.setObjectName("restartButton")
-        self.show_advanced_button.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
-        self.show_advanced_button.setCheckable(True)
-        self.show_advanced_button.toggled.connect(self._on_advanced_toggled)
-        self._apply_advanced_button_label(False)
-
-        voice_divider = QFrame()
-        voice_divider.setObjectName("secondaryDivider")
-        voice_divider.setFrameShape(QFrame.HLine)
-        voice_divider.setFrameShadow(QFrame.Plain)
 
         voice_row = QHBoxLayout()
         voice_row.setSpacing(SECONDARY_ACTION_ROW_SPACING)
@@ -532,8 +546,6 @@ class SecondaryPanel(QFrame):
 
         root.addLayout(action_row)
         root.addWidget(action_divider)
-        root.addWidget(self.show_advanced_button)
-        root.addWidget(voice_divider)
         root.addLayout(voice_row)
 
         voice_row.addWidget(self.voice_label, 1)
@@ -545,24 +557,37 @@ class SecondaryPanel(QFrame):
         self._expanded_height = self.sizeHint().height()
         self.setFixedHeight(0)
 
+        self._gear_animation = QVariantAnimation(self)
+        self._gear_animation.setDuration(ANIMATION_DURATION_MS)
+        self._gear_animation.valueChanged.connect(self._on_gear_animation_value)
+
     def expanded_height(self):
         if self._expanded_height <= 0:
             self._expanded_height = self.sizeHint().height()
         return self._expanded_height
 
     def set_advanced_expanded(self, expanded: bool):
-        blocked = self.show_advanced_button.blockSignals(True)
-        self.show_advanced_button.setChecked(bool(expanded))
-        self.show_advanced_button.blockSignals(blocked)
-        self._apply_advanced_button_label(bool(expanded))
+        blocked = self.gear_button.blockSignals(True)
+        self.gear_button.setChecked(bool(expanded))
+        self.gear_button.blockSignals(blocked)
+        self._spin_gear(bool(expanded), animate=False)
 
     def _on_advanced_toggled(self, checked: bool):
-        self._apply_advanced_button_label(bool(checked))
+        self._spin_gear(bool(checked), animate=True)
         self.advanced_toggled.emit(bool(checked))
 
-    def _apply_advanced_button_label(self, expanded: bool):
-        caret = "\u25B4" if expanded else "\u25BE"
-        self.show_advanced_button.setText(f"Advanced {caret}")
+    def _spin_gear(self, expanded: bool, animate: bool):
+        if not animate:
+            self._gear_angle = 180.0 if expanded else 0.0
+            self._apply_gear_icon()
+            return
+        if self._gear_animation.state() == QVariantAnimation.Running:
+            self._gear_animation.stop()
+        start = float(self._gear_angle)
+        delta = 180.0 if expanded else -180.0
+        self._gear_animation.setStartValue(start)
+        self._gear_animation.setEndValue(start + delta)
+        self._gear_animation.start()
 
     @staticmethod
     def _labeled_row(title: str, widget: QWidget):
@@ -577,9 +602,11 @@ class SecondaryPanel(QFrame):
     def _set_action_icon_sizes(self):
         side_icon_size = QSize(SECONDARY_ACTION_ICON_SIZE, SECONDARY_ACTION_ICON_SIZE)
         play_icon_size = QSize(SECONDARY_PLAY_ICON_SIZE, SECONDARY_PLAY_ICON_SIZE)
+        self.webcam_button.setIconSize(side_icon_size)
         self.crop_button.setIconSize(side_icon_size)
         self.play_pause_button.setIconSize(play_icon_size)
         self.clear_button.setIconSize(side_icon_size)
+        self.gear_button.setIconSize(side_icon_size)
         if hasattr(self, "voice_button"):
             self.voice_button.setIconSize(side_icon_size)
 
@@ -629,6 +656,26 @@ class SecondaryPanel(QFrame):
         painter.end()
         return QIcon(pix)
 
+    def _build_webcam_icon(self, size: int):
+        pix = self._new_icon_canvas(size)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(self._icon_color, 1.7)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+        w = size * 0.72
+        h = size * 0.46
+        x = (size - w) / 2.0
+        y = (size - h) / 2.0
+        body = QRectF(x, y, w, h)
+        painter.drawRoundedRect(body, 4, 4)
+        lens_r = size * 0.16
+        painter.drawEllipse(QRectF((size - lens_r) / 2.0, (size - lens_r) / 2.0, lens_r, lens_r))
+        top = QRectF(x + w * 0.12, y - h * 0.25, w * 0.25, h * 0.30)
+        painter.drawRoundedRect(top, 2, 2)
+        painter.end()
+        return QIcon(pix)
+
     def _build_play_icon(self, size: int):
         pix = self._new_icon_canvas(size)
         painter = QPainter(pix)
@@ -672,6 +719,39 @@ class SecondaryPanel(QFrame):
         painter.end()
         return QIcon(pix)
 
+    def _build_gear_icon(self, size: int, angle: float):
+        pix = self._new_icon_canvas(size)
+        painter = QPainter(pix)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.translate(size / 2.0, size / 2.0)
+        painter.rotate(angle)
+        pen = QPen(self._icon_color, 1.6)
+        painter.setPen(pen)
+        painter.setBrush(Qt.NoBrush)
+
+        tooth_w = size * 0.16
+        tooth_h = size * 0.22
+        for i in range(8):
+            painter.save()
+            painter.rotate(i * 45.0)
+            rect = QRectF(-tooth_w / 2.0, -(size * 0.45), tooth_w, tooth_h)
+            painter.drawRoundedRect(rect, 2, 2)
+            painter.restore()
+
+        outer = size * 0.30
+        inner = size * 0.12
+        painter.drawEllipse(QRectF(-outer, -outer, outer * 2, outer * 2))
+        painter.drawEllipse(QRectF(-inner, -inner, inner * 2, inner * 2))
+        painter.end()
+        return QIcon(pix)
+
+    def _apply_gear_icon(self):
+        self.gear_button.setIcon(self._build_gear_icon(SECONDARY_ACTION_ICON_SIZE, self._gear_angle))
+
+    def _on_gear_animation_value(self, value):
+        self._gear_angle = float(value or 0.0)
+        self._apply_gear_icon()
+
     def set_playing(self, is_playing: bool):
         self._is_playing = bool(is_playing)
         self._apply_play_pause_icon()
@@ -712,6 +792,14 @@ class SecondaryPanel(QFrame):
         self._apply_voice_status()
         self.voice_toggled.emit(self._voice_active)
 
+    def _on_webcam_toggled(self, checked: bool):
+        self.webcam_toggled.emit(bool(checked))
+
+    def set_webcam_active(self, active: bool):
+        blocked = self.webcam_button.blockSignals(True)
+        self.webcam_button.setChecked(bool(active))
+        self.webcam_button.blockSignals(blocked)
+
     def apply_theme(self, theme: dict):
         self._theme = theme
         if theme.get("is_light"):
@@ -719,10 +807,12 @@ class SecondaryPanel(QFrame):
         else:
             self._icon_color = QColor(255, 255, 255, 235)
         self.setStyleSheet(_panel_styles("secondaryPanel", theme))
+        self.webcam_button.setIcon(self._build_webcam_icon(SECONDARY_ACTION_ICON_SIZE))
         self.crop_button.setIcon(self._build_crop_icon(SECONDARY_ACTION_ICON_SIZE))
         self.clear_button.setIcon(self._build_region_icon(SECONDARY_ACTION_ICON_SIZE))
         self._apply_play_pause_icon()
         self._apply_voice_icon()
+        self._apply_gear_icon()
 
 class AdvancedPanel(QFrame):
     def __init__(self):

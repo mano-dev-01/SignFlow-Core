@@ -191,7 +191,14 @@ class PreviewWindow(QWidget):
         if region:
             width = int(region.get("width", 0))
             height = int(region.get("height", 0))
-            if width > 0 and height > 0:
+            label = region.get("label")
+            if label:
+                if width > 0 and height > 0:
+                    self.region_label.setText(f"{label}: {width} × {height}")
+                else:
+                    self.region_label.setText(str(label))
+                self.region_label.setVisible(True)
+            elif width > 0 and height > 0:
                 self.region_label.setText(f"Region: {width} × {height}")
                 self.region_label.setVisible(True)
             else:

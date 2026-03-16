@@ -6,7 +6,7 @@
   "enable_llm_smoothing": false,
   "corner": "Bottom Right",
   "show_miniplayer": true,
-  "flip_input": false,
+  "flip_input": true,
   "primary_hand_only": true,
   "light_theme": true
 }

@@ -11,7 +11,7 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import QGuiApplication, QRegion
 from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
 
-from overlay_capture import ScreenCaptureThread
+from overlay_capture import ScreenCaptureThread, WebcamCaptureThread
 from overlay_constants import (
     ANIMATION_DURATION_MS,
     CAPTURE_FPS,
@@ -86,8 +86,10 @@ class OverlayWindow(QWidget):
         self.voice_active = False
         self._resume_sign_after_voice = False
 
+        self.capture_source = "screen"
         self.capture_state = {"region": None, "paused": False}
         self.capture_thread = None
+        self.webcam_thread = None
         self.preview_window = None
         self.first_launch_hint = True
         self.selection_overlay = None
@@ -194,6 +196,7 @@ class OverlayWindow(QWidget):
         self.secondary_panel.clear_clicked.connect(self.on_crop_clicked)
         self.secondary_panel.advanced_toggled.connect(self.on_advanced_toggle_requested)
         self.secondary_panel.voice_toggled.connect(self.on_voice_toggled)
+        self.secondary_panel.webcam_toggled.connect(self.on_webcam_toggled)
 
         self.advanced_panel.caption_box_size_slider.valueChanged.connect(self.on_caption_box_size_changed)
         self.advanced_panel.caption_font_size_slider.valueChanged.connect(self.on_caption_font_size_changed)
@@ -363,10 +366,12 @@ class OverlayWindow(QWidget):
         self._sync_model_status_availability()
         self.secondary_panel.set_advanced_expanded(False)
         self.secondary_panel.set_voice_active(False)
+        self.secondary_panel.set_webcam_active(False)
         self.voice_active = False
         self._resume_sign_after_voice = False
         self.secondary_expanded = False
         self.advanced_expanded = False
+        self.capture_source = "screen"
         self._set_advanced_height(0, force_hide=True)
         self._set_secondary_height(0, force_hide=True)
         self._refresh_window_geometry(reposition=True)
@@ -606,6 +611,10 @@ class OverlayWindow(QWidget):
         self._start_capture()
 
     def _set_capture_state_from_rect(self, rect: QRect):
+        if self.capture_source == "webcam":
+            self._stop_capture_thread()
+            self.secondary_panel.set_webcam_active(False)
+        self.capture_source = "screen"
         rect = self._rect_to_physical(rect)
         self.capture_state = {
             "region": {
@@ -637,6 +646,9 @@ class OverlayWindow(QWidget):
         )
 
     def _start_capture(self):
+        if self.capture_source == "webcam":
+            self._start_webcam_capture()
+            return
         if not self.capture_state or not self.capture_state.get("region"):
             return
         self._stop_capture_thread()
@@ -666,11 +678,46 @@ class OverlayWindow(QWidget):
             self.hand_worker.prediction_updated.connect(self._on_prediction_text)
             self.hand_worker.start()
 
+    def _start_webcam_capture(self):
+        self._stop_capture_thread()
+        self._has_prediction = False
+        self._set_init_mode("model initializing...")
+        self.secondary_panel.set_playing(True)
+        self.advanced_panel.set_status_active(True)
+        if self.capture_state is None:
+            self.capture_state = {"region": {"label": "Webcam"}, "paused": False}
+        else:
+            self.capture_state["paused"] = False
+            if not self.capture_state.get("region"):
+                self.capture_state["region"] = {"label": "Webcam"}
+        self._ensure_preview_window()
+        if self.preview_window is not None:
+            self.preview_window.set_capture_state("LIVE")
+            self.preview_window.set_region_info(self.capture_state.get("region"), self.first_launch_hint)
+        self.webcam_thread = WebcamCaptureThread()
+        self.webcam_thread.frame_captured.connect(self._on_frame_captured)
+        self.webcam_thread.start()
+        if not self._preview_timer.isActive():
+            self._preview_timer.start()
+
+        if self.hand_worker is None and not self.debug_captions:
+            self.hand_worker = HandTrackingWorker(
+                flip_horizontal=self.flip_input,
+                primary_hand_only=self.primary_hand_only,
+            )
+            self.hand_worker.status_updated.connect(self._on_detection_status)
+            self.hand_worker.frame_processed.connect(self._on_processed_frame)
+            self.hand_worker.fps_updated.connect(self._on_processing_fps)
+            self.hand_worker.prediction_updated.connect(self._on_prediction_text)
+            self.hand_worker.start()
+
     def _stop_capture_thread(self):
-        if self.capture_thread is None:
-            return
-        self.capture_thread.stop()
-        self.capture_thread = None
+        if self.capture_thread is not None:
+            self.capture_thread.stop()
+            self.capture_thread = None
+        if self.webcam_thread is not None:
+            self.webcam_thread.stop()
+            self.webcam_thread = None
         if self._preview_timer.isActive():
             self._preview_timer.stop()
 
@@ -712,6 +759,18 @@ class OverlayWindow(QWidget):
         self._capture_frame_time = now
         self._latest_frame = frame
         self._latest_frame_time = now
+        if self.capture_source == "webcam" and self.capture_state:
+            region = self.capture_state.get("region")
+            if region is not None:
+                width = int(frame.get("width", 0) or 0)
+                height = int(frame.get("height", 0) or 0)
+                if width > 0 and height > 0:
+                    if region.get("width") != width or region.get("height") != height:
+                        region["width"] = width
+                        region["height"] = height
+                        region["label"] = "Webcam"
+                        if self.preview_window is not None:
+                            self.preview_window.set_region_info(region, self.first_launch_hint)
         if self.hand_worker is not None:
             self.hand_worker.submit(frame)
 
@@ -826,6 +885,30 @@ class OverlayWindow(QWidget):
         if self.preview_window is not None:
             self.preview_window.set_capture_state("LIVE")
 
+    def on_webcam_toggled(self, active: bool):
+        active = bool(active)
+        if active:
+            if self.voice_active:
+                self._stop_voice_mode(update_sign_state=False)
+            self.capture_source = "webcam"
+            self.capture_state = {"region": {"label": "Webcam"}, "paused": False}
+            self.first_launch_hint = False
+            if not self.show_miniplayer:
+                self.advanced_panel.show_miniplayer_checkbox.setChecked(True)
+            self._start_capture()
+        else:
+            if self.capture_source == "webcam":
+                self._stop_capture_thread()
+            self.capture_source = "screen"
+            self.capture_state = {"region": None, "paused": False}
+            self.secondary_panel.set_playing(False)
+            self.advanced_panel.set_status_active(False)
+            self._has_prediction = False
+            self._set_init_mode("select a region or press play")
+            if self.preview_window is not None:
+                self.preview_window.set_capture_state("IDLE")
+                self.preview_window.set_region_info(None, self.first_launch_hint)
+
     def on_voice_toggled(self, active: bool):
         if active:
             self._start_voice_mode()
@@ -930,6 +1013,10 @@ class OverlayWindow(QWidget):
             self.preview_window.set_capture_state("LIVE" if _is_playing else "PAUSED")
 
     def on_clear_clicked(self):
+        if self.capture_source == "webcam":
+            self._stop_capture_thread()
+            self.secondary_panel.set_webcam_active(False)
+            self.capture_source = "screen"
         self.advanced_panel.set_status_active(False)
         self._has_prediction = False
         self._set_init_mode("select a region or press play")
