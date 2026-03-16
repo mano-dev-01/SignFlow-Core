@@ -3,7 +3,7 @@ import os
 import threading
 import time
 from collections import deque
-from pathlib import Path
+from overlay_paths import get_resource_dir, get_resource_path
 
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
@@ -112,11 +112,21 @@ class HandTracker:
         self._mp = _safe_import("mediapipe")
 
         if self._joblib is not None:
-            model_path = Path(__file__).resolve().parent / "models" / "model.pkl"
-            if model_path.exists():
+            candidate_paths = [
+                get_resource_path("models", "model.pkl"),
+                get_resource_path("models", "model___.pkl"),
+            ]
+            resource_dir = get_resource_dir()
+            if resource_dir.name != "models":
+                candidate_paths.append(resource_dir / "model.pkl")
+                candidate_paths.append(resource_dir / "model___.pkl")
+            for model_path in candidate_paths:
+                if not model_path.exists():
+                    continue
                 try:
                     self._model = self._joblib.load(os.fspath(model_path))
                     self._model_name = model_path.name
+                    break
                 except Exception:
                     self._model = None
                     self._model_name = None

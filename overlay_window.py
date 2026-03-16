@@ -53,6 +53,7 @@ from overlay_utils import (
     set_frame_dispatcher,
     stop_capture,
 )
+from overlay_voice import VoiceToTextWorker
 
 
 class OverlayWindow(QWidget):
@@ -82,6 +83,8 @@ class OverlayWindow(QWidget):
         self.secondary_current_height = 0
         self.advanced_expanded = False
         self.advanced_current_height = 0
+        self.voice_active = False
+        self._resume_sign_after_voice = False
 
         self.capture_state = {"region": None, "paused": False}
         self.capture_thread = None
@@ -103,6 +106,7 @@ class OverlayWindow(QWidget):
         self._capture_frame_time = None
         self._last_prediction = None
         self._model_name = None
+        self.voice_worker = None
         if enable_logging:
             self.caption_logger = CaptionLogger(
                 is_simulation=self.debug_captions,
@@ -189,6 +193,7 @@ class OverlayWindow(QWidget):
         self.secondary_panel.play_pause_toggled.connect(self.on_play_pause_toggled)
         self.secondary_panel.clear_clicked.connect(self.on_crop_clicked)
         self.secondary_panel.advanced_toggled.connect(self.on_advanced_toggle_requested)
+        self.secondary_panel.voice_toggled.connect(self.on_voice_toggled)
 
         self.advanced_panel.caption_box_size_slider.valueChanged.connect(self.on_caption_box_size_changed)
         self.advanced_panel.caption_font_size_slider.valueChanged.connect(self.on_caption_font_size_changed)
@@ -324,6 +329,8 @@ class OverlayWindow(QWidget):
         self.primary_panel.set_caption_mode("caption")
 
     def _should_show_captions(self) -> bool:
+        if self.voice_active:
+            return True
         if self.debug_captions:
             return bool(self._has_prediction)
         return bool(self.capture_state and self.capture_state.get("region") and self._has_prediction)
@@ -355,6 +362,9 @@ class OverlayWindow(QWidget):
 
         self._sync_model_status_availability()
         self.secondary_panel.set_advanced_expanded(False)
+        self.secondary_panel.set_voice_active(False)
+        self.voice_active = False
+        self._resume_sign_after_voice = False
         self.secondary_expanded = False
         self.advanced_expanded = False
         self._set_advanced_height(0, force_hide=True)
@@ -691,6 +701,8 @@ class OverlayWindow(QWidget):
     def _handle_frame(self, frame):
         if not self.capture_state:
             return
+        if self.voice_active or self.capture_state.get("paused"):
+            return
         now = time.perf_counter()
         if self._capture_frame_time is not None:
             delta = now - self._capture_frame_time
@@ -781,7 +793,125 @@ class OverlayWindow(QWidget):
         self._set_capture_state_from_rect(rect)
         self._start_capture()
 
+    def _is_sign_running(self) -> bool:
+        return bool(self.capture_state and self.capture_state.get("region") and not self.capture_state.get("paused"))
+
+    def _pause_sign_inference(self, reason_text: str | None = None):
+        if self.capture_state is None:
+            self.capture_state = {"region": None, "paused": True}
+        else:
+            self.capture_state["paused"] = True
+        self.secondary_panel.set_playing(False)
+        self.advanced_panel.set_status_active(False)
+        if self.preview_window is not None:
+            if self.capture_state.get("region"):
+                self.preview_window.set_capture_state("PAUSED")
+            else:
+                self.preview_window.set_capture_state("IDLE")
+        if reason_text:
+            self._has_prediction = False
+            self._set_init_mode(reason_text)
+
+    def _resume_sign_inference(self):
+        if not self.capture_state or not self.capture_state.get("region"):
+            self.secondary_panel.set_playing(False)
+            self.advanced_panel.set_status_active(False)
+            if self.preview_window is not None:
+                self.preview_window.set_capture_state("IDLE")
+            self._set_init_mode("select a region or press play")
+            return
+        self.capture_state["paused"] = False
+        self.secondary_panel.set_playing(True)
+        self.advanced_panel.set_status_active(True)
+        if self.preview_window is not None:
+            self.preview_window.set_capture_state("LIVE")
+
+    def on_voice_toggled(self, active: bool):
+        if active:
+            self._start_voice_mode()
+        else:
+            self._stop_voice_mode(update_sign_state=True)
+
+    def _start_voice_mode(self):
+        if self.voice_active:
+            return
+        print("[Voice] Starting voice mode.")
+        self.voice_active = True
+        self.secondary_panel.set_voice_active(True)
+        self._resume_sign_after_voice = self._is_sign_running()
+        self._pause_sign_inference("voice to text listening...")
+        worker = self._ensure_voice_worker()
+        if not worker.isRunning():
+            worker.start()
+
+    def _stop_voice_mode(self, update_sign_state: bool = True):
+        if not self.voice_active:
+            return
+        print("[Voice] Stopping voice mode.")
+        self.voice_active = False
+        self.secondary_panel.set_voice_active(False)
+        self._shutdown_voice_worker()
+        if update_sign_state and self._resume_sign_after_voice:
+            self._resume_sign_after_voice = False
+            self._resume_sign_inference()
+        else:
+            self._resume_sign_after_voice = False
+            if update_sign_state and (not self.capture_state or not self.capture_state.get("region")):
+                self._set_init_mode("select a region or press play")
+
+    def _ensure_voice_worker(self):
+        if self.voice_worker is None:
+            self.voice_worker = VoiceToTextWorker()
+            self.voice_worker.text_updated.connect(self._on_voice_text)
+            self.voice_worker.partial_updated.connect(self._on_voice_partial)
+            self.voice_worker.status_updated.connect(self._on_voice_status)
+            self.voice_worker.error.connect(self._on_voice_error)
+        return self.voice_worker
+
+    def _shutdown_voice_worker(self):
+        if self.voice_worker is None:
+            return
+        try:
+            self.voice_worker.stop()
+        except Exception:
+            pass
+        self.voice_worker = None
+
+    def _on_voice_text(self, text: str):
+        if not self.voice_active:
+            return
+        clean = (text or "").strip()
+        if not clean:
+            return
+        print(f"[Voice] Caption update: {clean}")
+        self._has_prediction = True
+        self._set_caption_mode()
+        self.set_caption_text(clean)
+
+    def _on_voice_partial(self, text: str):
+        if not self.voice_active:
+            return
+        clean = (text or "").strip()
+        if not clean:
+            return
+        print(f"[Voice] Partial: {clean}")
+        self._has_prediction = True
+        self._set_caption_mode()
+        self.set_caption_text(clean)
+
+    def _on_voice_status(self, _status: str):
+        if not self.voice_active:
+            return
+
+    def _on_voice_error(self, message: str):
+        print(f"[Voice] Error: {message}")
+        self._stop_voice_mode(update_sign_state=False)
+        self._has_prediction = False
+        self._set_init_mode(message or "Voice engine unavailable.")
+
     def on_play_pause_toggled(self, _is_playing: bool):
+        if _is_playing and self.voice_active:
+            self._stop_voice_mode(update_sign_state=False)
         if self.capture_state is None or not self.capture_state.get("region"):
             if _is_playing:
                 self.on_fullscreen_capture()
@@ -829,6 +959,12 @@ class OverlayWindow(QWidget):
         if self.hand_worker is not None:
             self.hand_worker.stop()
             self.hand_worker = None
+        if self.voice_worker is not None:
+            try:
+                self.voice_worker.stop()
+            except Exception:
+                pass
+            self.voice_worker = None
         if self.caption_logger is not None:
             self.caption_logger.set_final_caption(self._caption_history_text)
             self.caption_logger.stop()

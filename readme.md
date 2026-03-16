@@ -14,6 +14,7 @@ Python version: `3.10`
 - Caption panel with init mode (status text) and caption mode (live predictions)
 - Caption font size control plus caption box size/opacity controls
 - Optional hand tracking and prediction display when model + dependencies are present
+- Voice-to-text mode with live microphone transcription (SpeechRecognition + PyAudio)
 - Advanced settings: Show Miniplayer, Show Model Status, Disable LLM smoothing, Flip Input, Detect only one / primary hand
 - Session logging to `logs/` as JSON (events + final caption transcript)
 - `--random` caption simulator for UI testing
@@ -64,6 +65,8 @@ Python version: `3.10`
   - Main window, capture lifecycle, preferences, and signal wiring
 - `overlay_panels.py`  
   - Primary and secondary control panels
+- `overlay_voice.py`  
+  - SpeechRecognition-based voice-to-text worker (microphone transcription)
 
 **Capture + Selection + Preview**
 - `overlay_capture.py`  
@@ -120,6 +123,7 @@ SignFlow-Core/
   overlay_selection.py
   overlay_preview.py
   overlay_hand_tracking.py
+  overlay_voice.py
   overlay_constants.py
   overlay_logging.py
   overlay_preferences.py
@@ -159,6 +163,19 @@ SignFlow-Core/
 4. Run  
 `python overlay.py`  
 `python overlay.py --random` (debug captions)
+
+## Voice To Text Setup (SpeechRecognition)
+
+SignFlow uses SpeechRecognition + PyAudio for microphone transcription.
+
+1. Install dependencies  
+`pip install SpeechRecognition PyAudio`
+
+2. Toggle **Voice to Speech** in the control panel to start/stop transcription.
+
+Optional:
+- The default engine is Google Web Speech (requires internet).
+- To use offline CMU Sphinx, install `pocketsphinx` and set `SIGNFLOW_STT_ENGINE=sphinx`.
 
 ## Notes
 

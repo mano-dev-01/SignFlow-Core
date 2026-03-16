@@ -78,7 +78,6 @@ def _write_json(path, payload):
 def ensure_preferences_files():
     default_raw = _read_json(DEFAULT_SETTINGS_PATH)
     defaults = _sanitize_settings(default_raw if default_raw is not None else DEFAULT_SETTINGS)
-    _write_json(DEFAULT_SETTINGS_PATH, defaults)
 
     user_raw = _read_json(USER_PREFERENCES_PATH)
     user = _sanitize_settings(user_raw if user_raw is not None else defaults)

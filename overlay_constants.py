@@ -1,4 +1,4 @@
-from pathlib import Path
+from overlay_paths import get_resource_dir, get_user_data_dir
 
 # GENERAL
 ENABLE_COLLAPSE_ANIMATION = True
@@ -175,9 +175,9 @@ DEFAULT_CORNER = CORNER_BOTTOM_RIGHT
 CORNER_OPTIONS = [CORNER_TOP_LEFT, CORNER_TOP_RIGHT, CORNER_BOTTOM_LEFT, CORNER_BOTTOM_RIGHT]
 
 # PREFERENCES
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = get_resource_dir()
 DEFAULT_SETTINGS_PATH = PROJECT_DIR / "default_settings.json"
-USER_PREFERENCES_PATH = PROJECT_DIR / "user_preferences.json"
+USER_PREFERENCES_PATH = get_user_data_dir() / "user_preferences.json"
 
 DEFAULT_SETTINGS = {
     "caption_box_size": DEFAULT_PRIMARY_BOX_SIZE,

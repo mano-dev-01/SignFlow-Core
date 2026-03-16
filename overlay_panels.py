@@ -435,6 +435,7 @@ class SecondaryPanel(QFrame):
     play_pause_toggled = pyqtSignal(bool)
     clear_clicked = pyqtSignal()
     advanced_toggled = pyqtSignal(bool)
+    voice_toggled = pyqtSignal(bool)
 
     def __init__(self):
         super().__init__()
@@ -442,6 +443,7 @@ class SecondaryPanel(QFrame):
         self.setFixedWidth(OVERLAY_WIDTH)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._is_playing = False
+        self._voice_active = False
         self._expanded_height = 0
         self._theme = get_theme_palette(False)
         self._icon_color = QColor(255, 255, 255, 235)
@@ -500,11 +502,46 @@ class SecondaryPanel(QFrame):
         self.show_advanced_button.toggled.connect(self._on_advanced_toggled)
         self._apply_advanced_button_label(False)
 
+        voice_divider = QFrame()
+        voice_divider.setObjectName("secondaryDivider")
+        voice_divider.setFrameShape(QFrame.HLine)
+        voice_divider.setFrameShadow(QFrame.Plain)
+
+        voice_row = QHBoxLayout()
+        voice_row.setSpacing(SECONDARY_ACTION_ROW_SPACING)
+        voice_row.setContentsMargins(0, 0, 0, 0)
+
+        self.voice_label = QLabel("Voice to Speech")
+
+        self.voice_status = QLabel()
+        self.voice_status.setObjectName("actionStatus")
+        self.voice_status.setAlignment(Qt.AlignCenter)
+        self.voice_status.setMinimumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
+        self.voice_status.setMaximumHeight(SECONDARY_CONTROL_MIN_HEIGHT)
+        self.voice_status.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.voice_status.setMinimumWidth(90)
+
+        self.voice_button = QPushButton("")
+        self.voice_button.setObjectName("actionButton")
+        self.voice_button.setFixedSize(SECONDARY_ACTION_BUTTON_SIZE, SECONDARY_ACTION_BUTTON_SIZE)
+        self.voice_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.voice_button.setFocusPolicy(Qt.NoFocus)
+        self.voice_button.clicked.connect(self._toggle_voice)
+        self.voice_button.setIconSize(QSize(SECONDARY_ACTION_ICON_SIZE, SECONDARY_ACTION_ICON_SIZE))
+        self._apply_voice_icon()
+
         root.addLayout(action_row)
         root.addWidget(action_divider)
         root.addWidget(self.show_advanced_button)
+        root.addWidget(voice_divider)
+        root.addLayout(voice_row)
+
+        voice_row.addWidget(self.voice_label, 1)
+        voice_row.addWidget(self.voice_status)
+        voice_row.addWidget(self.voice_button)
 
         self.setStyleSheet(_panel_styles("secondaryPanel", self._theme))
+        self._apply_voice_status()
         self._expanded_height = self.sizeHint().height()
         self.setFixedHeight(0)
 
@@ -543,6 +580,8 @@ class SecondaryPanel(QFrame):
         self.crop_button.setIconSize(side_icon_size)
         self.play_pause_button.setIconSize(play_icon_size)
         self.clear_button.setIconSize(side_icon_size)
+        if hasattr(self, "voice_button"):
+            self.voice_button.setIconSize(side_icon_size)
 
     def _new_icon_canvas(self, size: int):
         pix = QPixmap(size, size)
@@ -637,16 +676,41 @@ class SecondaryPanel(QFrame):
         self._is_playing = bool(is_playing)
         self._apply_play_pause_icon()
 
+    def set_voice_active(self, active: bool):
+        self._voice_active = bool(active)
+        self._apply_voice_icon()
+        self._apply_voice_status()
+
     def _apply_play_pause_icon(self):
         if self._is_playing:
             self.play_pause_button.setIcon(self._build_pause_icon(SECONDARY_PLAY_ICON_SIZE))
         else:
             self.play_pause_button.setIcon(self._build_play_icon(SECONDARY_PLAY_ICON_SIZE))
 
+    def _apply_voice_icon(self):
+        if self._voice_active:
+            self.voice_button.setIcon(self._build_pause_icon(SECONDARY_ACTION_ICON_SIZE))
+        else:
+            self.voice_button.setIcon(self._build_play_icon(SECONDARY_ACTION_ICON_SIZE))
+
+    def _apply_voice_status(self):
+        if self._voice_active:
+            self.voice_status.setText("Listening")
+            self.voice_button.setToolTip("Stop voice to text")
+        else:
+            self.voice_status.setText("Inactive")
+            self.voice_button.setToolTip("Start voice to text")
+
     def _toggle_play_pause(self):
         self._is_playing = not self._is_playing
         self._apply_play_pause_icon()
         self.play_pause_toggled.emit(self._is_playing)
+
+    def _toggle_voice(self):
+        self._voice_active = not self._voice_active
+        self._apply_voice_icon()
+        self._apply_voice_status()
+        self.voice_toggled.emit(self._voice_active)
 
     def apply_theme(self, theme: dict):
         self._theme = theme
@@ -658,6 +722,7 @@ class SecondaryPanel(QFrame):
         self.crop_button.setIcon(self._build_crop_icon(SECONDARY_ACTION_ICON_SIZE))
         self.clear_button.setIcon(self._build_region_icon(SECONDARY_ACTION_ICON_SIZE))
         self._apply_play_pause_icon()
+        self._apply_voice_icon()
 
 class AdvancedPanel(QFrame):
     def __init__(self):

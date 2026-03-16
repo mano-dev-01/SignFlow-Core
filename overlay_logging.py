@@ -3,7 +3,7 @@ import threading
 import uuid
 from collections import deque
 from datetime import datetime, timezone
-from pathlib import Path
+from overlay_paths import get_logs_dir
 
 
 class CaptionLogger:
@@ -37,8 +37,7 @@ class CaptionLogger:
         self._running = True
         self._thread = threading.Thread(target=self._run, daemon=True)
 
-        log_dir = Path(__file__).resolve().parent / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = get_logs_dir()
         self._log_path = log_dir / f"{self._session_id}.json"
         self._write_payload()
         self._thread.start()
